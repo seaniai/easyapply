@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-confirm",
+    "fs:default",
+    "fs:allow-exists",
+    "fs:allow-read",
+    "fs:allow-read-dir",
+    "shell:allow-open"
+  ],
+  "fs": {
+    "scope": [
+      "C:\\\\QMS\\\\**"
+    ]
+  }
+}

@@ -1,0 +1,277 @@
+{
+  "app": {
+    "title": "EasyApply",
+    "subtitle": "Job applications, codes, and application materials.",
+    "meta": {
+      "time": "Time",
+      "version": "Version"
+    },
+    "main": {
+      "job_applied": "Job Applied",
+      "code_management": "Code Management",
+      "application_material": "Application Material"
+    },
+    "panel": {
+      "kicker": {
+        "application": "Application",
+        "user": "User",
+        "user_management": "User Management"
+      },
+      "title": {
+        "settings": "Settings",
+        "account": "Account",
+        "user_management": "User Management",
+        "job_applied": "Job Applied",
+        "code_management": "Code Management",
+        "application_material": "Application Material"
+      },
+      "summary": {
+        "settings": "Language and theme.",
+        "account_locked": "Sign in to unlock.",
+        "account_unlocked": "Profile and server settings.",
+        "user_management": "Manage users and roles.",
+        "job_applied": "Manage job applications. Export/import CSV.",
+        "code_management": "Manage account passwords. Export/import CSV.",
+        "application_material": "Cover letter, template, CV folders."
+      },
+      "actions": {
+        "back": "Back"
+      }
+    },
+    "alerts": {
+      "export_failed": "Export failed: {error}",
+      "import_failed": "Import failed: {error}",
+      "open_folder_failed": "Open folder failed: {error}",
+      "create_folder_failed": "Create folder failed: {error}",
+      "save_failed": "Save failed: {error}",
+      "load_failed": "Load failed: {error}"
+    }
+  },
+  "settings": {
+    "sections": {
+      "general": "General",
+      "user_management": "User Management"
+    },
+    "fields": {
+      "language": "Language",
+      "theme": "Theme"
+    },
+    "options": {
+      "language_english": "English",
+      "language_other": "中文",
+      "theme_default": "Default",
+      "theme_golden": "Golden",
+      "theme_black": "Black"
+    },
+    "actions": {},
+    "hints": {}
+  },
+  "account": {
+    "titles": {
+      "account": "Account",
+      "log_in": "Log in"
+    },
+    "sections": {
+      "server": "Server"
+    },
+    "fields": {
+      "user": "User",
+      "roles": "Roles",
+      "username": "Username",
+      "password": "Password",
+      "remember_me": "Remember me",
+      "old_password": "Old password",
+      "new_password": "New password",
+      "confirm_new": "Confirm new",
+      "enable_background_services": "Enable background services",
+      "server_host": "Server host",
+      "server_port": "Server port"
+    },
+    "actions": {
+      "log_out": "Log out",
+      "change_password": "Change password",
+      "apply": "Apply",
+      "cancel": "Cancel",
+      "sign_in": "Sign in",
+      "test_connection": "Test connection",
+      "apply_server_config": "Apply server config"
+    },
+    "hints": {
+      "signed_in_session_active": "Signed in.",
+      "enter_credentials": "Enter credentials to unlock.",
+      "navigation_locked": "Sign in to unlock.",
+      "server_placeholder": "Remote connection placeholder."
+    },
+    "messages": {
+      "new_password_mismatch": "New passwords do not match.",
+      "new_password_required": "New password is required.",
+      "not_signed_in": "Not signed in.",
+      "password_updated": "Password updated."
+    }
+  },
+  "user_management": {
+    "hints": {
+      "sign_in_to_view": "Sign in to view.",
+      "admin_required": "Admin role required to manage users."
+    }
+  },
+  "auth_manager": {
+    "sections": {
+      "export_users_csv": "Export users list",
+      "upsert_delete_user": "Upsert / Delete a user",
+      "bulk_apply_csv": "Bulk apply from a CSV file"
+    },
+    "fields": {
+      "username": "Username",
+      "role": "Role"
+    },
+    "placeholders": {
+      "username": "type username here"
+    },
+    "actions": {
+      "select_folder": "Select folder",
+      "export_database": "Export Database",
+      "export_csv": "Export CSV",
+      "apply": "Apply",
+      "select": "Select",
+      "validate": "Validate",
+      "apply_csv": "Apply CSV",
+      "confirm": "Confirm",
+      "back": "Back"
+    },
+    "hints": {
+      "export_users_csv": "Choose a folder, then export.",
+      "upsert_delete_user": "Existing username = update; New = create. Default password: 88888888",
+      "bulk_apply_csv": "Select CSV, Validate, then Apply."
+    },
+    "messages": {
+      "role_required": "Role is required.",
+      "role_not_allowed": "Role \"{roleRaw}\" is not allowed. Allowed: {allowedRoles} (or \"Delete\").",
+      "invalid_folder_path": "Invalid folder path.",
+      "folder_selected_export_ready": "Folder selected. You can Export now.",
+      "please_select_folder_first": "Please select a folder first.",
+      "username_required": "Username is required.",
+      "role_validation_failed": "Role validation failed.",
+      "invalid_csv_path": "Invalid CSV path.",
+      "csv_selected_validate_first": "CSV selected: {fileName}. Run Validate first.",
+      "please_select_csv_first": "Please select a CSV file first.",
+      "please_validate_first": "Please Validate first.",
+      "validation_failed_fix_before_apply": "Validation failed. Fix before Apply.",
+      "exported": "Exported: {path}",
+      "export_failed": "Export failed: {error}",
+      "applied_successfully": "Applied successfully.",
+      "apply_failed": "Apply failed: {error}",
+      "unexpected_dryrun_shape": "Unexpected response (dryRun).",
+      "validation_ok": "Validation OK. Rows: {rows}.{warningsPart} You can Apply now.",
+      "validation_failed": "Validation FAILED. Errors: {count}.",
+      "validate_failed": "Validate failed: {error}",
+      "applied_summary": "Applied. rows={rows}, inserted={inserted}, updated={updated}, deleted={deleted}, skipped={skipped}",
+      "apply_blocked_by_validation": "Apply blocked. Errors: {count}.",
+      "unexpected_apply_shape": "Unexpected response (apply)."
+    },
+    "confirm": {
+      "titles": {
+        "export": "Confirm Export",
+        "single": "Confirm User Change",
+        "bulk_validate": "Confirm Validate CSV",
+        "bulk_apply": "Confirm Apply CSV"
+      },
+      "body": {
+        "export_intro": "Export users to CSV into:",
+        "single_action": "This will {action} the user.",
+        "username": "Username: {username}",
+        "role": "Role: {role}",
+        "default_password": "New user default password: 88888888",
+        "bulk_validate_intro": "Dry run. CSV:",
+        "bulk_apply_intro": "Write to auth.db. CSV:",
+        "bulk_apply_block": "If validation is not OK, apply will be blocked."
+      }
+    },
+    "report": {
+      "validation_report": "Validation Report",
+      "apply_result": "Apply Result",
+      "ok": "ok",
+      "rows": "rows",
+      "warnings": "warnings",
+      "errors": "errors",
+      "applied": "applied",
+      "inserted": "inserted",
+      "updated": "updated",
+      "deleted": "deleted",
+      "skipped": "skipped",
+      "selected": "Selected"
+    }
+  },
+  "job_applied": {
+    "fields": {
+      "company": "Company",
+      "role": "Role",
+      "via": "Via",
+      "date": "Date",
+      "status": "Status",
+      "comments": "Comments"
+    },
+    "actions": {
+      "add": "Add",
+      "clear": "Clear",
+      "save": "Save",
+      "update": "Update",
+      "delete": "Delete",
+      "export_database": "Export Database",
+      "import_csv": "Import CSV",
+      "open_folder": "Open folder"
+    },
+    "hints": {
+      "export_database_hint": "Export to CSV (UTF-8). File: job_applied.csv",
+      "no_folder_set": "No export folder set yet.",
+      "select_csv_to_import": "Select a CSV file to import (same columns as export)."
+    },
+    "save_confirm": "Save as a new entry? This will modify the database.",
+    "update_confirm": "Update this record? This will modify the database.",
+    "delete_confirm": "Delete this record? This cannot be undone.",
+    "import_confirm": "Import will replace ALL existing data. File format must match export. Continue?"
+  },
+  "code_management": {
+    "fields": {
+      "account": "Account",
+      "username": "Username",
+      "password": "Password",
+      "tel": "Tel",
+      "email": "Email",
+      "comments": "Comments"
+    },
+    "actions": {
+      "add": "Add",
+      "clear": "Clear",
+      "save": "Save",
+      "update": "Update",
+      "delete": "Delete",
+      "export_database": "Export Database",
+      "import_csv": "Import CSV",
+      "open_folder": "Open folder"
+    },
+    "hints": {
+      "export_database_hint": "Export to CSV (UTF-8). File: code_management.csv",
+      "no_folder_set": "No export folder set yet.",
+      "select_csv_to_import": "Select a CSV file to import (same columns as export)."
+    },
+    "save_confirm": "Save as a new entry? This will modify the database.",
+    "update_confirm": "Update this record? This will modify the database.",
+    "delete_confirm": "Delete this record? This cannot be undone.",
+    "import_confirm": "Import will replace ALL existing data. File format must match export. Continue?"
+  },
+  "application_material": {
+    "modules": {
+      "cover_letter": "Cover Letter",
+      "template": "Template",
+      "cv": "CV"
+    },
+    "actions": {
+      "create_folder": "Create folder",
+      "open_folder": "Open folder"
+    },
+    "hints": {
+      "folder_not_set": "Folder not set. Create or select folder first."
+    }
+  }
+}

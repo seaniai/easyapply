@@ -1,0 +1,277 @@
+{
+  "app": {
+    "title": "EasyApply",
+    "subtitle": "求职申请、密码与申请资料管理。",
+    "meta": {
+      "time": "时间",
+      "version": "版本"
+    },
+    "main": {
+      "job_applied": "已申请工作",
+      "code_management": "密码管理",
+      "application_material": "申请资料"
+    },
+    "panel": {
+      "kicker": {
+        "application": "应用",
+        "user": "用户",
+        "user_management": "用户管理"
+      },
+      "title": {
+        "settings": "设置",
+        "account": "账户",
+        "user_management": "用户管理",
+        "job_applied": "已申请工作",
+        "code_management": "密码管理",
+        "application_material": "申请资料"
+      },
+      "summary": {
+        "settings": "语言与主题。",
+        "account_locked": "登录以解锁。",
+        "account_unlocked": "个人与服务器设置。",
+        "user_management": "管理用户与角色。",
+        "job_applied": "管理求职记录。支持导出/批量导入。",
+        "code_management": "管理账户密码。支持导出/批量导入。",
+        "application_material": "Cover letter、模板、简历文件夹。"
+      },
+      "actions": {
+        "back": "返回"
+      }
+    },
+    "alerts": {
+      "export_failed": "导出失败：{error}",
+      "import_failed": "导入失败：{error}",
+      "open_folder_failed": "打开文件夹失败：{error}",
+      "create_folder_failed": "创建文件夹失败：{error}",
+      "save_failed": "保存失败：{error}",
+      "load_failed": "加载失败：{error}"
+    }
+  },
+  "settings": {
+    "sections": {
+      "general": "常规",
+      "user_management": "用户管理"
+    },
+    "fields": {
+      "language": "语言",
+      "theme": "主题"
+    },
+    "options": {
+      "language_english": "English",
+      "language_other": "中文",
+      "theme_default": "默认",
+      "theme_golden": "金色",
+      "theme_black": "黑色"
+    },
+    "actions": {},
+    "hints": {}
+  },
+  "account": {
+    "titles": {
+      "account": "账户",
+      "log_in": "登录"
+    },
+    "sections": {
+      "server": "服务器"
+    },
+    "fields": {
+      "user": "用户",
+      "roles": "角色",
+      "username": "用户名",
+      "password": "密码",
+      "remember_me": "记住我",
+      "old_password": "旧密码",
+      "new_password": "新密码",
+      "confirm_new": "确认新密码",
+      "enable_background_services": "启用后台服务",
+      "server_host": "服务器地址",
+      "server_port": "端口"
+    },
+    "actions": {
+      "log_out": "退出",
+      "change_password": "修改密码",
+      "apply": "应用",
+      "cancel": "取消",
+      "sign_in": "登录",
+      "test_connection": "测试连接",
+      "apply_server_config": "应用服务器配置"
+    },
+    "hints": {
+      "signed_in_session_active": "已登录。",
+      "enter_credentials": "输入凭据以解锁。",
+      "navigation_locked": "请先登录以解锁。",
+      "server_placeholder": "远程连接占位。"
+    },
+    "messages": {
+      "new_password_mismatch": "两次新密码不一致。",
+      "new_password_required": "请输入新密码。",
+      "not_signed_in": "未登录。",
+      "password_updated": "密码已更新。"
+    }
+  },
+  "user_management": {
+    "hints": {
+      "sign_in_to_view": "请登录后查看。",
+      "admin_required": "需要管理员角色管理用户。"
+    }
+  },
+  "auth_manager": {
+    "sections": {
+      "export_users_csv": "导出用户列表",
+      "upsert_delete_user": "新增/更新/删除用户",
+      "bulk_apply_csv": "从 CSV 批量导入"
+    },
+    "fields": {
+      "username": "用户名",
+      "role": "角色"
+    },
+    "placeholders": {
+      "username": "输入用户名"
+    },
+    "actions": {
+      "select_folder": "选择文件夹",
+      "export_database": "导出数据",
+      "export_csv": "导出 CSV",
+      "apply": "应用",
+      "select": "选择",
+      "validate": "验证",
+      "apply_csv": "应用 CSV",
+      "confirm": "确认",
+      "back": "返回"
+    },
+    "hints": {
+      "export_users_csv": "选择文件夹后导出。",
+      "upsert_delete_user": "已存在则更新，否则创建。默认密码：88888888",
+      "bulk_apply_csv": "选择 CSV、验证后应用。"
+    },
+    "messages": {
+      "role_required": "请选择角色。",
+      "role_not_allowed": "角色 \"{roleRaw}\" 不允许。允许：{allowedRoles}（或 \"Delete\"）。",
+      "invalid_folder_path": "无效的文件夹路径。",
+      "folder_selected_export_ready": "已选文件夹，可导出。",
+      "please_select_folder_first": "请先选择文件夹。",
+      "username_required": "请输入用户名。",
+      "role_validation_failed": "角色验证失败。",
+      "invalid_csv_path": "无效的 CSV 路径。",
+      "csv_selected_validate_first": "已选 CSV：{fileName}。请先验证。",
+      "please_select_csv_first": "请先选择 CSV 文件。",
+      "please_validate_first": "请先验证。",
+      "validation_failed_fix_before_apply": "验证未通过，请修正后再应用。",
+      "exported": "已导出：{path}",
+      "export_failed": "导出失败：{error}",
+      "applied_successfully": "应用成功。",
+      "apply_failed": "应用失败：{error}",
+      "unexpected_dryrun_shape": "后端返回格式异常（dryRun）。",
+      "validation_ok": "验证通过。行数：{rows}.{warningsPart} 可应用。",
+      "validation_failed": "验证失败。错误：{count}。",
+      "validate_failed": "验证失败：{error}",
+      "applied_summary": "已应用。rows={rows}, inserted={inserted}, updated={updated}, deleted={deleted}, skipped={skipped}",
+      "apply_blocked_by_validation": "因验证未通过已阻止应用。错误：{count}。",
+      "unexpected_apply_shape": "后端返回格式异常（apply）。"
+    },
+    "confirm": {
+      "titles": {
+        "export": "确认导出",
+        "single": "确认用户变更",
+        "bulk_validate": "确认验证 CSV",
+        "bulk_apply": "确认应用 CSV"
+      },
+      "body": {
+        "export_intro": "导出用户到 CSV 到：",
+        "single_action": "将{action}该用户。",
+        "username": "用户名：{username}",
+        "role": "角色：{role}",
+        "default_password": "新用户默认密码：88888888",
+        "bulk_validate_intro": "仅验证，不写入。CSV：",
+        "bulk_apply_intro": "将写入 auth.db。CSV：",
+        "bulk_apply_block": "若验证未通过将阻止应用。"
+      }
+    },
+    "report": {
+      "validation_report": "验证报告",
+      "apply_result": "应用结果",
+      "ok": "通过",
+      "rows": "行",
+      "warnings": "警告",
+      "errors": "错误",
+      "applied": "已应用",
+      "inserted": "新增",
+      "updated": "更新",
+      "deleted": "删除",
+      "skipped": "跳过",
+      "selected": "已选"
+    }
+  },
+  "job_applied": {
+    "fields": {
+      "company": "公司",
+      "role": "岗位",
+      "via": "渠道",
+      "date": "日期",
+      "status": "状态",
+      "comments": "备注"
+    },
+    "actions": {
+      "add": "添加",
+      "clear": "清空",
+      "save": "保存",
+      "update": "更新",
+      "delete": "删除",
+      "export_database": "导出数据",
+      "import_csv": "批量导入",
+      "open_folder": "打开文件夹"
+    },
+    "hints": {
+      "export_database_hint": "导出为 CSV (UTF-8)。文件名：job_applied.csv",
+      "no_folder_set": "尚未设置导出文件夹。",
+      "select_csv_to_import": "选择 CSV 文件导入（列与导出格式一致）。"
+    },
+    "save_confirm": "保存为新条目？将修改数据库。",
+    "update_confirm": "更新本条记录？将修改数据库。",
+    "delete_confirm": "删除本条记录？此操作不可恢复。",
+    "import_confirm": "导入将完全替换现有数据，文件格式需与导出一致。是否继续？"
+  },
+  "code_management": {
+    "fields": {
+      "account": "账户",
+      "username": "账户名",
+      "password": "密码",
+      "tel": "注册电话",
+      "email": "注册邮箱",
+      "comments": "备注"
+    },
+    "actions": {
+      "add": "添加",
+      "clear": "清空",
+      "save": "保存",
+      "update": "更新",
+      "delete": "删除",
+      "export_database": "导出数据",
+      "import_csv": "批量导入",
+      "open_folder": "打开文件夹"
+    },
+    "hints": {
+      "export_database_hint": "导出为 CSV (UTF-8)。文件名：code_management.csv",
+      "no_folder_set": "尚未设置导出文件夹。",
+      "select_csv_to_import": "选择 CSV 文件导入（列与导出格式一致）。"
+    },
+    "save_confirm": "保存为新条目？将修改数据库。",
+    "update_confirm": "更新本条记录？将修改数据库。",
+    "delete_confirm": "删除本条记录？此操作不可恢复。",
+    "import_confirm": "导入将完全替换现有数据，文件格式需与导出一致。是否继续？"
+  },
+  "application_material": {
+    "modules": {
+      "cover_letter": "Cover Letter",
+      "template": "Template",
+      "cv": "CV"
+    },
+    "actions": {
+      "create_folder": "创建文件夹",
+      "open_folder": "打开文件夹"
+    },
+    "hints": {
+      "folder_not_set": "未设置文件夹。请先创建或选择。"
+    }
+  }
+}
