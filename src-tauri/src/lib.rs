@@ -1,6 +1,7 @@
 // easyapply: Job Applied, Code Management, Application Material.
 // Auth (auth.db) and easyapply data (easyapply.db) live in app_data_dir; config in app_config_dir.
 
+mod ai;
 mod auth;
 mod easyapply;
 
@@ -83,6 +84,7 @@ pub fn run() {
     .setup(|app| {
       auth::ensure_auth_db(app.handle()).expect("ensure_auth_db failed");
       easyapply::ensure_easyapply_db(app.handle()).expect("ensure_easyapply_db failed");
+      ai::ensure_ai_config(app.handle()).expect("ensure_ai_config failed");
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
@@ -96,6 +98,12 @@ pub fn run() {
       auth::auth_export_users_csv,
       auth::auth_upsert_user_role,
       auth::auth_bulk_apply_csv,
+      ai::ai_get_openai_profile,
+      ai::ai_save_openai_api_key,
+      ai::ai_update_openai_profile,
+      ai::ai_test_openai_api_key,
+      ai::ai_generate_cover_letter,
+      ai::ai_update_cover_letter_prompt,
       easyapply::applied_list,
       easyapply::applied_create,
       easyapply::applied_update,

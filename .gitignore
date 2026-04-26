@@ -25,3 +25,8 @@ dist-ssr
 
 # Local app data (dev databases, exports)
 data/
+
+# Local AI secrets/config generated at runtime
+openai_api_key.secret
+openai_profile.json
+*.secret
