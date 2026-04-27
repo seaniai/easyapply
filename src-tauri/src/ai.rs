@@ -526,7 +526,6 @@ fn open_folder_path(path: &Path) -> Result<(), String> {
     #[allow(unreachable_code)]
     Err("Opening folder is not supported on this platform".to_string())
 }
-
 #[tauri::command]
 pub fn ai_get_openai_profile(app: AppHandle) -> Result<OpenAiProfileView, String> {
     ensure_ai_config(&app)?;
@@ -608,6 +607,14 @@ pub async fn ai_generate_cover_letter(
     ensure_non_empty(&request.prompt_markdown, "promptMarkdown")?;
 
     ensure_non_empty(&request.iteration_goal, "iterationGoal")?;
+    ensure_keywords_have_values(
+        &request.hard_requirements.technical_skills,
+        "hardRequirements.technicalSkills",
+    )?;
+    ensure_keywords_have_values(
+        &request.hard_requirements.behavioural_capabilities,
+        "hardRequirements.behaviouralCapabilities",
+    )?;
 
     let payload = json!({
         "task": "generate_cover_letter",
