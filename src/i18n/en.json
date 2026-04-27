@@ -9,7 +9,8 @@
     "main": {
       "job_applied": "Job Applied",
       "code_management": "Code Management",
-      "application_material": "Application Material"
+      "application_material": "Application Material",
+      "cover_letter_generate": "Cover Letter Generate"
     },
     "panel": {
       "kicker": {
@@ -23,7 +24,8 @@
         "user_management": "User Management",
         "job_applied": "Job Applied",
         "code_management": "Code Management",
-        "application_material": "Application Material"
+        "application_material": "Application Material",
+        "cover_letter_generate": "Cover Letter Generate"
       },
       "summary": {
         "settings": "Language and theme.",
@@ -32,7 +34,8 @@
         "user_management": "Manage users and roles.",
         "job_applied": "Manage job applications. Export/import CSV.",
         "code_management": "Manage account passwords. Export/import CSV.",
-        "application_material": "Cover letter, template, CV folders."
+        "application_material": "Cover letter, template, CV folders.",
+        "cover_letter_generate": "Generate and iterate cover letter versions."
       },
       "actions": {
         "back": "Back"
@@ -54,17 +57,42 @@
     },
     "fields": {
       "language": "Language",
-      "theme": "Theme"
+      "theme": "Theme",
+      "openai_api_key": "OpenAI API Key",
+      "reasoning_effort": "Reasoning Effort",
+      "text_verbosity": "Text Verbosity",
+      "model": "Model"
     },
     "options": {
       "language_english": "English",
       "language_other": "中文",
       "theme_default": "Default",
       "theme_golden": "Golden",
-      "theme_black": "Black"
+      "theme_black": "Black",
+      "reasoning_none": "none",
+      "reasoning_low": "low",
+      "reasoning_medium": "medium",
+      "reasoning_high": "high",
+      "reasoning_xhigh": "xhigh",
+      "verbosity_low": "low",
+      "verbosity_medium": "medium",
+      "verbosity_high": "high"
     },
-    "actions": {},
-    "hints": {}
+    "actions": {
+      "save_and_test_api_key": "Save & Test API Key"
+    },
+    "hints": {
+      "api_key_stored_locally": "Stored locally only, never committed to Git.",
+      "api_key_test_intro": "After saving, a low-token test call is sent.",
+      "openai_apply_help": "Get an API key from platform.openai.com and ensure GPT-5.5 access."
+    },
+    "messages": {
+      "api_key_saved": "API key saved successfully.",
+      "api_key_test_success": "API test passed.",
+      "api_key_test_failed": "API test failed: {error}",
+      "profile_update_failed": "Failed to update model profile: {error}",
+      "api_key_save_failed": "Failed to save API key: {error}"
+    }
   },
   "account": {
     "titles": {
@@ -272,6 +300,58 @@
     },
     "hints": {
       "folder_not_set": "Folder not set. Create or select folder first."
+    }
+  },
+  "cover_letter_generate": {
+    "sections": {
+      "input_constraints": "JD Input & Constraints",
+      "cover_letter_output": "Cover Letter Output",
+      "feedback_iteration": "Feedback & Iteration",
+      "prompt_iteration": "Prompt Iteration",
+      "prompt_storage": "Prompt Storage"
+    },
+    "fields": {
+      "jd_text": "JD Text",
+      "technical_skills": "Technical Skills",
+      "behavioural_capabilities": "Behavioural Capabilities",
+      "other_requirements": "Other Requirements",
+      "iteration_goal": "Iteration Goal",
+      "prompt_path": "Prompt Path",
+      "skill_name": "Name",
+      "skill_keywords": "Keywords",
+      "case_context": "Case.Context",
+      "case_problem_task": "Case.Problem / Task",
+      "case_method_action": "Case.Method / Action",
+      "case_result": "Case.Result"
+    },
+    "actions": {
+      "browse_prompt_path": "Browse Prompt Path",
+      "load_prompt": "Load Prompt",
+      "generate_cover_letter": "Generate Cover Letter",
+      "update_prompt": "Update Prompt",
+      "open_prompt_folder": "Open Prompt Folder",
+      "back_to_home": "Back to Home",
+      "append_skill": "Add Skill Update",
+      "append_capability": "Add Capability Update"
+    },
+    "hints": {
+      "jd_raw_paste": "Paste raw JD page text directly; noisy text is allowed.",
+      "hard_requirements_optional": "Hard requirements are optional and used as highest-priority constraints.",
+      "output_append_only": "New versions are appended below previous versions.",
+      "feedback_window_desc": "All non-cover-letter AI messages appear here.",
+      "prompt_update_rule": "If Name is filled, all corresponding structured fields are required.",
+      "missing_prompt_match": "Missing competency-map match detected. Update prompt first.",
+      "prompt_path_required": "Prompt path is required before loading or saving.",
+      "prompt_loaded": "Prompt loaded: {path}",
+      "prompt_saved": "Prompt saved as {path}",
+      "prompt_update_rejected": "Prompt update rejected. Check feedback.",
+      "generated_version": "Generated cover letter {versionLabel}.",
+      "request_failed": "Request failed: {error}",
+      "session_reset": "Session reset for a new position.",
+      "prompt_open_failed": "Open prompt folder failed: {error}",
+      "prompt_read_failed": "Read prompt failed: {error}",
+      "prompt_write_failed": "Write prompt failed: {error}",
+      "validation_failed": "Validation failed: {error}"
     }
   }
 }

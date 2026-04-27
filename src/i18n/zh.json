@@ -9,7 +9,8 @@
     "main": {
       "job_applied": "已申请工作",
       "code_management": "密码管理",
-      "application_material": "申请资料"
+      "application_material": "申请资料",
+      "cover_letter_generate": "Cover Letter Generate"
     },
     "panel": {
       "kicker": {
@@ -23,7 +24,8 @@
         "user_management": "用户管理",
         "job_applied": "已申请工作",
         "code_management": "密码管理",
-        "application_material": "申请资料"
+        "application_material": "申请资料",
+        "cover_letter_generate": "Cover Letter Generate"
       },
       "summary": {
         "settings": "语言与主题。",
@@ -32,7 +34,8 @@
         "user_management": "管理用户与角色。",
         "job_applied": "管理求职记录。支持导出/批量导入。",
         "code_management": "管理账户密码。支持导出/批量导入。",
-        "application_material": "Cover letter、模板、简历文件夹。"
+        "application_material": "Cover letter、模板、简历文件夹。",
+        "cover_letter_generate": "基于 JD 与 prompt 生成并迭代 Cover Letter。"
       },
       "actions": {
         "back": "返回"
@@ -50,21 +53,42 @@
   "settings": {
     "sections": {
       "general": "常规",
+      "openai": "OpenAI API Key",
       "user_management": "用户管理"
     },
     "fields": {
       "language": "语言",
-      "theme": "主题"
+      "theme": "主题",
+      "openai_api_key": "API Key",
+      "openai_model": "模型",
+      "reasoning_effort": "推理强度",
+      "text_verbosity": "文本详细度",
+      "timeout_seconds": "超时(秒)"
     },
     "options": {
       "language_english": "English",
       "language_other": "中文",
       "theme_default": "默认",
       "theme_golden": "金色",
-      "theme_black": "黑色"
+      "theme_black": "黑色",
+      "reasoning_none": "none",
+      "reasoning_low": "low",
+      "reasoning_medium": "medium",
+      "reasoning_high": "high",
+      "reasoning_xhigh": "xhigh",
+      "verbosity_low": "low",
+      "verbosity_medium": "medium",
+      "verbosity_high": "high"
     },
-    "actions": {},
-    "hints": {}
+    "actions": {
+      "save_api_key": "保存",
+      "test_api_key": "测试"
+    },
+    "hints": {
+      "api_key_saved_masked": "已保存（已隐藏）",
+      "api_key_test_success": "API Key 测试成功。",
+      "api_key_test_failed_help": "测试失败。请确认 API Key 有效、模型可用、网络正常。可在 OpenAI 平台申请 Key 并检查模型权限。"
+    }
   },
   "account": {
     "titles": {
@@ -272,6 +296,68 @@
     },
     "hints": {
       "folder_not_set": "未设置文件夹。请先创建或选择。"
+    }
+  },
+  "cover_letter_generate": {
+    "title": "Cover Letter Generate",
+    "subtitle": "左栏输入与约束，中栏版本正文，右栏反馈与迭代。",
+    "left": {
+      "jd_title": "JD文本",
+      "jd_hint": "直接粘贴网页 JD 原文（可包含噪声文本），AI 会自动提取关键信息。",
+      "hard_requirements_title": "硬性要求（可选）",
+      "technical_skills": "Technical Skills（每行一条）",
+      "behavioural_capabilities": "Behavioural Capabilities（每行一条）",
+      "other_requirements": "Other Requirements（每行一条）",
+      "iteration_goal": "本轮目标",
+      "iteration_goal_hint": "例如：强调嵌入式调试能力，语气更简洁。"
+    },
+    "middle": {
+      "title": "Cover Letter 正文",
+      "empty": "暂无版本。请先在右栏设置 prompt 路径并在左栏粘贴 JD 后点击生成。",
+      "version_label": "Version {version}",
+      "prompt_path_label": "Prompt 文件",
+      "select_prompt": "选择 Prompt 文件",
+      "generate": "生成 Cover Letter"
+    },
+    "right": {
+      "feedback_title": "反馈",
+      "prompt_iteration_title": "Prompt 迭代",
+      "skill_update": "Skill 更新",
+      "capability_update": "Capability 更新",
+      "other_update": "其它更新",
+      "name": "Name",
+      "keywords": "Keywords（逗号分隔）",
+      "case_context": "Case.Context",
+      "case_problem_task": "Case.Problem / Task",
+      "case_method_action": "Case.Method / Action",
+      "case_result": "Case.Result",
+      "add_skill": "新增 Skill 条目",
+      "add_capability": "新增 Capability 条目",
+      "other_update_placeholder": "其它 prompt 更新要求（每行一条）",
+      "update_prompt": "更新 Prompt",
+      "prompt_storage_title": "Prompt 保存路径",
+      "select_prompt_save_path": "选择保存路径",
+      "open_prompt_folder": "打开文件夹"
+    },
+    "messages": {
+      "prompt_file_loaded": "已加载 prompt 文件：{path}",
+      "prompt_file_missing": "请先选择 prompt 文件。",
+      "jd_required": "请先粘贴 JD 文本。",
+      "iteration_goal_required": "请填写本轮目标。",
+      "generation_started": "开始生成 Cover Letter...",
+      "generation_done": "已生成 Cover Letter v{version}",
+      "generation_needs_prompt_update": "当前要求超出 prompt 能力，请先在右侧更新 prompt。",
+      "generation_failed": "生成失败：{error}",
+      "prompt_update_started": "开始更新 prompt...",
+      "prompt_update_done": "Prompt 已更新并保存：{path}",
+      "prompt_update_rejected": "Prompt 更新被拒绝，请检查右侧反馈。",
+      "prompt_update_failed": "Prompt 更新失败：{error}",
+      "prompt_save_path_required": "请先设置 prompt 保存路径。",
+      "open_folder_failed": "打开文件夹失败：{error}",
+      "save_prompt_failed": "保存 prompt 失败：{error}"
+    },
+    "actions": {
+      "back": "返回主界面"
     }
   }
 }

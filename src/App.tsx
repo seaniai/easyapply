@@ -15,6 +15,7 @@ import zh from "./i18n/zh.json";
 import JobAppliedPanel from "./panels/JobAppliedPanel";
 import CodeManagementPanel from "./panels/CodeManagementPanel";
 import ApplicationMaterialPanel from "./panels/ApplicationMaterialPanel";
+import CoverLetterGeneratorPage from "./panels/CoverLetterGeneratorPage";
 
 type LanguageKey = "en" | "zh";
 type ThemeKey = "Default" | "Golden" | "Black";
@@ -26,6 +27,7 @@ type Drawer =
   | { type: "job_applied" }
   | { type: "code_management" }
   | { type: "application_material" }
+  | { type: "cover_letter_generate" }
   | null;
 
 const THEME_STORAGE_KEY = "easyapply-theme";
@@ -126,6 +128,16 @@ function applyBodyTheme(tk: ThemeKey) {
 function SettingsView(props: { disabled?: boolean }) {
   const { language, setLanguage, t } = useI18n();
   const [theme, setTheme] = useState<ThemeKey>("Default");
+  const [apiKey, setApiKey] = useState("");
+  const [apiBusy, setApiBusy] = useState(false);
+  const [apiMessage, setApiMessage] = useState<string | null>(null);
+  const [apiProfile, setApiProfile] = useState<{
+    model: string;
+    reasoningEffort: string;
+    textVerbosity: string;
+    timeoutSeconds: number;
+    hasApiKey: boolean;
+  } | null>(null);
 
   const applyTheme = (tk: ThemeKey) => {
     setTheme(tk);
@@ -138,6 +150,53 @@ function SettingsView(props: { disabled?: boolean }) {
     setTheme(saved);
     applyBodyTheme(saved);
   }, []);
+
+  useEffect(() => {
+    invoke<{
+      model: string;
+      reasoningEffort: string;
+      textVerbosity: string;
+      timeoutSeconds: number;
+      hasApiKey: boolean;
+    }>("ai_get_openai_profile")
+      .then((p) => setApiProfile(p))
+      .catch((e) => setApiMessage(String(e)));
+  }, []);
+
+  const onSaveAndTestApiKey = async () => {
+    if (props.disabled || apiBusy) return;
+    setApiBusy(true);
+    setApiMessage(null);
+    try {
+      const profile = await invoke<{
+        model: string;
+        reasoningEffort: string;
+        textVerbosity: string;
+        timeoutSeconds: number;
+        hasApiKey: boolean;
+      }>("ai_save_openai_api_key", { apiKey });
+      setApiProfile(profile);
+      const test = await invoke<{
+        ok: boolean;
+        intro: string;
+        model: string;
+        reasoningEffort: string;
+        textVerbosity: string;
+        timeoutSeconds: number;
+      }>("ai_test_openai_api_key");
+      setApiMessage(
+        `${t("settings.messages.api_test_success")} ${test.intro}\n` +
+        `${t("settings.messages.api_profile")}: ${test.model}, reasoning=${test.reasoningEffort}, verbosity=${test.textVerbosity}, timeout=${test.timeoutSeconds}s`
+      );
+      setApiKey("");
+    } catch (e) {
+      setApiMessage(
+        `${t("settings.messages.api_test_failed", { error: String(e) })}\n${t("settings.messages.api_help")}`
+      );
+    } finally {
+      setApiBusy(false);
+    }
+  };
 
   return (
     <div className="settings">
@@ -177,6 +236,37 @@ function SettingsView(props: { disabled?: boolean }) {
             ))}
           </div>
         </div>
+      </div>
+      <div className="settings__section">
+        <div className="settings__section-title">{t("settings.sections.api_key_test")}</div>
+        <div className="settings__hint">{t("settings.hints.api_key_test")}</div>
+        <div className="settings__row">
+          <div className="settings__label">{t("settings.fields.api_key")}</div>
+          <input
+            className="settings__control"
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            disabled={props.disabled || apiBusy}
+            placeholder="sk-..."
+          />
+        </div>
+        {apiProfile ? (
+          <div className="settings__hint">
+            {t("settings.messages.api_profile")}: {apiProfile.model}, reasoning={apiProfile.reasoningEffort}, verbosity={apiProfile.textVerbosity}, timeout={apiProfile.timeoutSeconds}s, hasKey={String(apiProfile.hasApiKey)}
+          </div>
+        ) : null}
+        <div className="settings__actions">
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={onSaveAndTestApiKey}
+            disabled={props.disabled || apiBusy || apiKey.trim().length === 0}
+          >
+            {t("settings.actions.save_and_test")}
+          </button>
+        </div>
+        {apiMessage ? <div className="settings__hint" style={{ whiteSpace: "pre-line" }}>{apiMessage}</div> : null}
       </div>
     </div>
   );
@@ -548,6 +638,10 @@ export default function App() {
     if (isLocked) return;
     setDrawer({ type: "application_material" });
   };
+  const openCoverLetterGenerate = () => {
+    if (isLocked) return;
+    setDrawer({ type: "cover_letter_generate" });
+  };
 
   const onClose = () => {
     if (isLocked) return;
@@ -645,6 +739,14 @@ export default function App() {
           >
             {t("app.main.application_material")}
           </button>
+          <button
+            type="button"
+            className="main-btn main-btn--primary"
+            onClick={openCoverLetterGenerate}
+            disabled={isLocked}
+          >
+            {t("app.main.cover_letter_generate")}
+          </button>
         </section>
       </div>
 
@@ -669,6 +771,7 @@ export default function App() {
               {drawer.type === "job_applied" && <JobAppliedPanel t={t} disabled={isLocked} />}
               {drawer.type === "code_management" && <CodeManagementPanel t={t} disabled={isLocked} />}
               {drawer.type === "application_material" && <ApplicationMaterialPanel t={t} disabled={isLocked} />}
+              {drawer.type === "cover_letter_generate" && <CoverLetterGeneratorPage t={t} disabled={isLocked} onBack={onClose} />}
             </div>
             <div className="panel__footer">
               <button className="btn" onClick={onClose} disabled={isLocked}>

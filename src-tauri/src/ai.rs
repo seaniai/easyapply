@@ -491,6 +491,42 @@ fn validate_prompt_update_requirements(
     Ok(())
 }
 
+fn open_folder_path(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err("Folder does not exist".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(path.to_string_lossy().to_string())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Opening folder is not supported on this platform".to_string())
+}
+
 #[tauri::command]
 pub fn ai_get_openai_profile(app: AppHandle) -> Result<OpenAiProfileView, String> {
     ensure_ai_config(&app)?;
@@ -572,14 +608,6 @@ pub async fn ai_generate_cover_letter(
     ensure_non_empty(&request.prompt_markdown, "promptMarkdown")?;
 
     ensure_non_empty(&request.iteration_goal, "iterationGoal")?;
-    ensure_keywords_have_values(
-        &request.hard_requirements.technical_skills,
-        "hardRequirements.technicalSkills",
-    )?;
-    ensure_keywords_have_values(
-        &request.hard_requirements.behavioural_capabilities,
-        "hardRequirements.behaviouralCapabilities",
-    )?;
 
     let payload = json!({
         "task": "generate_cover_letter",
@@ -624,6 +652,28 @@ pub async fn ai_generate_cover_letter(
         reasoning_effort: profile.reasoning_effort,
         text_verbosity: profile.text_verbosity,
     })
+}
+
+#[tauri::command]
+pub fn ai_read_text_file(path: String) -> Result<String, String> {
+    ensure_non_empty(&path, "path")?;
+    fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ai_write_text_file(path: String, content: String) -> Result<(), String> {
+    ensure_non_empty(&path, "path")?;
+    let path_buf = PathBuf::from(path);
+    if let Some(parent) = path_buf.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(path_buf, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn ai_open_folder(path: String) -> Result<(), String> {
+    ensure_non_empty(&path, "path")?;
+    open_folder_path(Path::new(&path))
 }
 
 #[tauri::command]
