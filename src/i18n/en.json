@@ -1,4 +1,7 @@
 {
+  "common": {
+    "edit": "Edit"
+  },
   "app": {
     "title": "EasyApply",
     "subtitle": "Job applications, codes, and application materials.",
@@ -9,7 +12,8 @@
     "main": {
       "job_applied": "Job Applied",
       "code_management": "Code Management",
-      "application_material": "Application Material"
+      "application_material": "Application Material",
+      "cover_letter_generate": "Cover Letter Generate"
     },
     "panel": {
       "kicker": {
@@ -23,7 +27,8 @@
         "user_management": "User Management",
         "job_applied": "Job Applied",
         "code_management": "Code Management",
-        "application_material": "Application Material"
+        "application_material": "Application Material",
+        "cover_letter_generate": "Cover Letter Generate"
       },
       "summary": {
         "settings": "Language and theme.",
@@ -32,7 +37,8 @@
         "user_management": "Manage users and roles.",
         "job_applied": "Manage job applications. Export/import CSV.",
         "code_management": "Manage account passwords. Export/import CSV.",
-        "application_material": "Cover letter, template, CV folders."
+        "application_material": "Cover letter, template, CV folders.",
+        "cover_letter_generate": "Generate and iterate cover letter versions."
       },
       "actions": {
         "back": "Back"
@@ -50,21 +56,56 @@
   "settings": {
     "sections": {
       "general": "General",
+      "api_key_test": "API Key Test",
       "user_management": "User Management"
     },
     "fields": {
       "language": "Language",
-      "theme": "Theme"
+      "theme": "Theme",
+      "api_key": "API Key",
+      "ai_raw_feedback": "AI Raw Feedback",
+      "openai_api_key": "OpenAI API Key",
+      "reasoning_effort": "Reasoning Effort",
+      "text_verbosity": "Text Verbosity",
+      "model": "Model"
     },
     "options": {
       "language_english": "English",
       "language_other": "中文",
       "theme_default": "Default",
       "theme_golden": "Golden",
-      "theme_black": "Black"
+      "theme_black": "Black",
+      "reasoning_none": "none",
+      "reasoning_low": "low",
+      "reasoning_medium": "medium",
+      "reasoning_high": "high",
+      "reasoning_xhigh": "xhigh",
+      "verbosity_low": "low",
+      "verbosity_medium": "medium",
+      "verbosity_high": "high"
     },
-    "actions": {},
-    "hints": {}
+    "actions": {
+      "save_and_test": "Save & Test",
+      "save_and_test_api_key": "Save & Test API Key"
+    },
+    "hints": {
+      "api_key_test": "Save and run a lightweight API test request.",
+      "ai_raw_feedback_empty": "No test feedback yet.",
+      "api_key_stored_locally": "Stored locally only, never committed to Git.",
+      "api_key_test_intro": "After saving, a low-token test call is sent.",
+      "openai_apply_help": "Get an API key from platform.openai.com and ensure GPT-5.5 access."
+    },
+    "messages": {
+      "api_profile": "API profile",
+      "api_help": "Check API key validity, model access, and network connectivity.",
+      "api_test_success": "API test passed.",
+      "api_test_failed": "API test failed: {error}",
+      "api_key_saved": "API key saved successfully.",
+      "api_key_test_success": "API test passed.",
+      "api_key_test_failed": "API test failed: {error}",
+      "profile_update_failed": "Failed to update model profile: {error}",
+      "api_key_save_failed": "Failed to save API key: {error}"
+    }
   },
   "account": {
     "titles": {
@@ -272,6 +313,96 @@
     },
     "hints": {
       "folder_not_set": "Folder not set. Create or select folder first."
+    }
+  },
+  "cover_letter_generate": {
+    "sections": {
+      "input_constraints": "JD Input & Constraints",
+      "cover_letter_output": "Cover Letter Output",
+      "feedback_iteration": "Feedback & Iteration",
+      "prompt_iteration": "Prompt Update",
+      "prompt_storage": "Prompt Storage"
+    },
+    "fields": {
+      "jd_text": "JD Text",
+      "hard_requirements": "Hard Constrains",
+      "iteration_round": "Iteration Round",
+      "plan_confirmation_notes": "Plan Confirmation / Adjustment",
+      "technical_skills": "Technical Skills",
+      "behavioural_capabilities": "Behavioural Capabilities",
+      "other_requirements": "Other Requirements",
+      "iteration_goal": "Iteration Goal",
+      "prompt_path": "Prompt Path",
+      "skill_name": "Name",
+      "skill_keywords": "Keywords",
+      "case_context": "Case.Context",
+      "case_problem_task": "Case.Problem / Task",
+      "case_method_action": "Case.Method / Action",
+      "case_result": "Case.Result"
+    },
+    "actions": {
+      "browse_prompt_path": "Browse Prompt Path",
+      "load_prompt": "Load Prompt",
+      "generate_cover_letter": "Generate Cover Letter",
+      "generating_cover_letter": "Generating...",
+      "update_prompt": "Update",
+      "updating_prompt": "Updating...",
+      "open_prompt_folder": "Open Prompt Folder",
+      "back_to_home": "Back to Home",
+      "append_skill": "Add Skill",
+      "append_capability": "Add Capability",
+      "collapse_skill_update": "Collapse Skill Update",
+      "collapse_capability_update": "Collapse Capability Update"
+    },
+    "placeholders": {
+      "skill_name": "Name: Enter the case title.",
+      "skill_keywords": "Keywords: Enter case keywords manually; AI can supplement additional keywords from case content.",
+      "case_context": "Case.Context: Enter background context, e.g. employment period, project setting, or environment.",
+      "case_problem_task": "Case.Problem / Task: Enter the core problem and your assigned responsibility.",
+      "case_method_action": "Case.Method / Action: Enter what methods/actions you took and how you executed them.",
+      "case_result": "Case.Result: Enter measurable outcomes or practical impact."
+    },
+    "messages": {
+      "invalid_prompt_path": "Invalid prompt file path.",
+      "empty_prompt_content": "Current prompt content is empty.",
+      "no_prompt_updates": "No prompt updates were provided.",
+      "prompt_version_mismatch": "Prompt update rejected because version metadata is inconsistent between AI response and prompt content.",
+      "prompt_filename_unmatched": "Prompt filename does not match expected version naming; using same path for save.",
+      "prompt_updated_to": "Prompt updated to {version} at {path}",
+      "invalid_prompt_folder": "Cannot derive prompt folder from current path.",
+      "opened_prompt_folder": "Opened prompt folder: {folder}",
+      "generated_with_model": "Generated cover letter v{version} via {model}"
+    },
+    "hints": {
+      "jd_raw_paste": "Paste raw JD page text directly; noisy text is allowed.",
+      "hard_requirements_optional": "Hard requirements are optional and used as highest-priority constraints.",
+      "hard_requirements_help": "Optional. The system extracts semantic requirements and applies them at highest priority. If Technical Skills or Behavioural Capabilities are not covered by the current prompt competency map, you will receive explicit [GAP][TECH]/[GAP][BEHAVIOUR] feedback and should update the prompt.",
+      "prompt_iteration_help": "You can write this section in any language. During update, AI will translate content into British English and archive it according to the current prompt standard.",
+      "plan_confirmation_notes_help": "First click Generate to receive Stage-0 matching plan. Then write whether you agree with selected skills/capabilities and what to adjust; click Generate again to produce the final cover letter.",
+      "stage0_status_label": "Stage-0 Status",
+      "stage0_status_pending": "Pending (run first Generate)",
+      "stage0_status_ready": "Ready for confirmation and final generation",
+      "stage0_status_gap": "Blocked by competency-map gap (update prompt first)",
+      "stage0_status_iterative": "Iterative generation enabled",
+      "stage0_waiting_confirmation": "Stage-0 plan generated. Please review Feedback & Iteration, then provide confirmation/adjustments below before generating the final cover letter.",
+      "iterative_gap_continue": "Gap is still present, but iterative generation remains enabled. You can continue generating or update prompt manually.",
+      "iterative_waiting_generation": "Iterative generation continues. Refine Plan Confirmation / Adjustment and click Generate again.",
+      "no_plan_notes": "(no Plan Confirmation / Adjustment provided)",
+      "output_append_only": "New versions are appended below previous versions.",
+      "feedback_window_desc": "All non-cover-letter AI messages appear here.",
+      "prompt_update_rule": "If Name is filled, all corresponding structured fields are required.",
+      "missing_prompt_match": "Missing competency-map match detected. Update prompt first.",
+      "prompt_path_required": "Prompt path is required before loading or saving.",
+      "prompt_loaded": "Prompt loaded: {path}",
+      "prompt_saved": "Prompt saved as {path}",
+      "prompt_update_rejected": "Prompt update rejected. Check feedback.",
+      "generated_version": "Generated cover letter {versionLabel}.",
+      "request_failed": "Request failed: {error}",
+      "session_reset": "Session reset for a new position.",
+      "prompt_open_failed": "Open prompt folder failed: {error}",
+      "prompt_read_failed": "Read prompt failed: {error}",
+      "prompt_write_failed": "Write prompt failed: {error}",
+      "validation_failed": "Validation failed: {error}"
     }
   }
 }

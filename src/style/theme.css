@@ -183,6 +183,12 @@ body {
   padding: var(--pad-app);
 }
 
+.app__content--full {
+  width: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
 .app__header {
   margin-bottom: var(--sp-3);
   padding-bottom: var(--sp-3);
@@ -582,6 +588,11 @@ body {
   border-top: none;
 }
 
+.settings__row--stack {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
 .settings__label {
   font-size: var(--fs-text);
   font-weight: var(--fw-text);
@@ -593,6 +604,7 @@ body {
 .settings__control {
   height: var(--btn-height);
   min-width: 180px;
+  width: 100%;
   border-radius: var(--r-btn);
   border: var(--b-1) solid var(--c-border-strong);
   padding: 0 var(--pad-btn-x);
@@ -630,6 +642,22 @@ body {
 .settings__actions .btn {
   flex: 1;
   width: auto;
+}
+
+.settings__feedback-window {
+  width: 100%;
+  min-height: 120px;
+  max-height: 260px;
+  overflow: auto;
+  border: var(--b-1) solid var(--c-panel-border);
+  border-radius: var(--r-btn);
+  background: var(--c-card-fg);
+  color: var(--c-panel-fg);
+  padding: var(--sp-2) var(--sp-3);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--fs-info);
+  line-height: 1.4;
 }
 
 .panel-table-wrap {
@@ -696,6 +724,269 @@ body {
   background: var(--c-primary);
   opacity: 0.3;
 }
+
+/* =========================
+   Cover Letter Generator
+   ========================= */
+
+.clg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-height: 0;
+  height: 100%;
+  min-width: 1280px;
+}
+
+.clg__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  border-bottom: var(--b-1) solid var(--c-border);
+  padding-bottom: var(--sp-3);
+}
+
+.clg__title {
+  margin: 0;
+  font-size: var(--fs-panel);
+  font-weight: 750;
+  line-height: var(--lh-panel);
+}
+
+.clg__subtitle {
+  margin: var(--sp-1) 0 0 0;
+  font-size: var(--fs-info);
+  color: var(--c-muted);
+}
+
+.clg__layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(360px, 2fr) minmax(360px, 2fr);
+  gap: var(--sp-4);
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  align-items: stretch;
+  overflow: visible;
+}
+
+.clg__col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.clg__col--right {
+  overflow: visible;
+  padding-right: 0;
+}
+
+.clg__card {
+  border: var(--b-1) solid var(--c-panel-border);
+  border-radius: var(--r-card);
+  background: var(--c-surface-2);
+  box-shadow: var(--sh-1);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-height: 0;
+}
+
+.clg__card-title {
+  margin: 0;
+  font-size: var(--fs-text);
+  font-weight: 700;
+}
+
+.clg__textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: none;
+  border-radius: var(--r-btn);
+  border: var(--b-1) solid var(--c-border-strong);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-card-fg);
+  color: var(--c-panel-fg);
+  font-size: var(--fs-text);
+  line-height: 1.4;
+}
+
+.clg__textarea--jd {
+  min-height: 180px;
+  max-height: 180px;
+}
+
+.clg__textarea--compact {
+  min-height: 74px;
+  max-height: 74px;
+}
+
+.clg__input {
+  height: var(--btn-height);
+  border-radius: var(--r-btn);
+  border: var(--b-1) solid var(--c-border-strong);
+  padding: 0 var(--sp-3);
+  background: var(--c-card-fg);
+  color: var(--c-panel-fg);
+  font-size: var(--fs-text);
+}
+
+.clg__grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+}
+
+.clg__muted {
+  margin: 0;
+  font-size: var(--fs-info);
+  color: var(--c-panel-muted);
+}
+
+.clg__actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.clg__actions .btn {
+  width: auto;
+  min-width: 130px;
+}
+
+.clg__body-window {
+  width: 100%;
+  border: var(--b-1) solid var(--c-panel-border);
+  border-radius: var(--r-btn);
+  background: var(--c-card-fg);
+  padding: var(--sp-3);
+  overflow: auto;
+  resize: none;
+  min-height: 360px;
+  max-height: 360px;
+  white-space: pre-wrap;
+  font-size: var(--fs-text);
+  line-height: 1.45;
+}
+
+.clg__body-window--main {
+  width: 100%;
+}
+
+.clg__output-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.clg__output-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.clg__output-title {
+  margin-bottom: 0;
+}
+
+.clg__iteration-card {
+  border: var(--b-1) solid var(--c-panel-border);
+  border-radius: var(--r-btn);
+  background: var(--c-card-fg);
+  padding: 2px 8px;
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+}
+
+.clg__iteration-card-title {
+  font-size: 12px;
+  color: var(--c-panel-muted);
+  margin-right: var(--sp-2);
+}
+
+.clg__iteration-calendar {
+  min-width: 30px;
+}
+
+.clg__iteration-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: clg-calendar-flip var(--t-slow) var(--ease);
+  transform-origin: center center;
+}
+
+.clg__iteration-value {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 750;
+  color: var(--c-panel-fg);
+}
+
+@keyframes clg-calendar-flip {
+  0% {
+    opacity: 0.2;
+    transform: rotateX(-80deg);
+  }
+
+  100% {
+    opacity: 1;
+    transform: rotateX(0deg);
+  }
+}
+
+.clg__actions-row {
+  margin-top: var(--sp-2);
+}
+
+.clg__btn-wide {
+  width: 100%;
+}
+
+.clg__section-gap-lg {
+  margin-top: var(--sp-4);
+}
+
+.clg__feedback-window {
+  border: var(--b-1) solid var(--c-panel-border);
+  border-radius: var(--r-btn);
+  background: var(--c-card-fg);
+  padding: var(--sp-3);
+  min-height: 180px;
+  max-height: none;
+  overflow: visible;
+  white-space: pre-wrap;
+  font-size: var(--fs-info);
+  line-height: 1.35;
+}
+
+.clg__feedback-item {
+  margin: 0 0 var(--sp-2) 0;
+}
+
+.clg__section-divider {
+  margin: var(--sp-2) 0;
+  border: none;
+  border-top: var(--b-1) solid var(--c-panel-border);
+}
+
+.clg__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.clg__label {
+  font-size: var(--fs-info);
+  color: var(--c-panel-muted);
+}
+
+/* Keep fixed three-column layout for usability; small windows scroll both directions. */
 
 /* ---------- Switch ---------- */
 .switch {

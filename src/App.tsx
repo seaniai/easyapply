@@ -15,6 +15,7 @@ import zh from "./i18n/zh.json";
 import JobAppliedPanel from "./panels/JobAppliedPanel";
 import CodeManagementPanel from "./panels/CodeManagementPanel";
 import ApplicationMaterialPanel from "./panels/ApplicationMaterialPanel";
+import CoverLetterGeneratorPage from "./panels/CoverLetterGeneratorPage";
 
 type LanguageKey = "en" | "zh";
 type ThemeKey = "Default" | "Golden" | "Black";
@@ -26,12 +27,14 @@ type Drawer =
   | { type: "job_applied" }
   | { type: "code_management" }
   | { type: "application_material" }
+  | { type: "cover_letter_generate" }
   | null;
 
 const THEME_STORAGE_KEY = "easyapply-theme";
 const LANGUAGE_STORAGE_KEY = "easyapply-language";
 const LANGUAGE_CHANGE_EVENT = "easyapply-language-change";
 const PANEL_WIDTH_STORAGE_KEY = "easyapply-panel-width";
+const API_KEY_INPUT_STORAGE_KEY = "easyapply-api-key-input";
 const PANEL_WIDTH_MIN = 360;
 const PANEL_WIDTH_DEFAULT = 420;
 /** Left column (title + meta + buttons) min width so meta right edge aligns with buttons right edge. */
@@ -126,6 +129,16 @@ function applyBodyTheme(tk: ThemeKey) {
 function SettingsView(props: { disabled?: boolean }) {
   const { language, setLanguage, t } = useI18n();
   const [theme, setTheme] = useState<ThemeKey>("Default");
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(API_KEY_INPUT_STORAGE_KEY) ?? "");
+  const [apiBusy, setApiBusy] = useState(false);
+  const [apiMessage, setApiMessage] = useState<string | null>(null);
+  const [apiProfile, setApiProfile] = useState<{
+    model: string;
+    reasoningEffort: string;
+    textVerbosity: string;
+    timeoutSeconds: number;
+    hasApiKey: boolean;
+  } | null>(null);
 
   const applyTheme = (tk: ThemeKey) => {
     setTheme(tk);
@@ -138,6 +151,47 @@ function SettingsView(props: { disabled?: boolean }) {
     setTheme(saved);
     applyBodyTheme(saved);
   }, []);
+
+  useEffect(() => {
+    invoke<{
+      model: string;
+      reasoningEffort: string;
+      textVerbosity: string;
+      timeoutSeconds: number;
+      hasApiKey: boolean;
+    }>("ai_get_openai_profile")
+      .then((p) => setApiProfile(p))
+      .catch((e) => setApiMessage(String(e)));
+  }, []);
+
+  const onSaveAndTestApiKey = async () => {
+    if (props.disabled || apiBusy) return;
+    setApiBusy(true);
+    setApiMessage(null);
+    try {
+      const profile = await invoke<{
+        model: string;
+        reasoningEffort: string;
+        textVerbosity: string;
+        timeoutSeconds: number;
+        hasApiKey: boolean;
+      }>("ai_save_openai_api_key", { apiKey });
+      setApiProfile(profile);
+      const test = await invoke<{
+        ok: boolean;
+        intro: string;
+        model: string;
+        reasoningEffort: string;
+        textVerbosity: string;
+        timeoutSeconds: number;
+      }>("ai_test_openai_api_key");
+      setApiMessage(test.intro);
+    } catch (e) {
+      setApiMessage(String(e));
+    } finally {
+      setApiBusy(false);
+    }
+  };
 
   return (
     <div className="settings">
@@ -176,6 +230,44 @@ function SettingsView(props: { disabled?: boolean }) {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+      <div className="settings__section">
+        <div className="settings__section-title">{t("settings.sections.api_key_test")}</div>
+        <div className="settings__hint">{t("settings.hints.api_key_test")}</div>
+        <div className="settings__row settings__row--stack">
+          <div className="settings__label">{t("settings.fields.api_key")}</div>
+          <input
+            className="settings__control"
+            type="password"
+            value={apiKey}
+            onChange={(e) => {
+              const v = e.target.value;
+              setApiKey(v);
+              localStorage.setItem(API_KEY_INPUT_STORAGE_KEY, v);
+            }}
+            disabled={props.disabled || apiBusy}
+            placeholder="sk-..."
+          />
+        </div>
+        {apiProfile ? (
+          <div className="settings__hint">
+            {t("settings.messages.api_profile")}: {apiProfile.model}, reasoning={apiProfile.reasoningEffort}, verbosity={apiProfile.textVerbosity}, timeout={apiProfile.timeoutSeconds}s, hasKey={String(apiProfile.hasApiKey)}
+          </div>
+        ) : null}
+        <div className="settings__actions">
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={onSaveAndTestApiKey}
+            disabled={props.disabled || apiBusy || apiKey.trim().length === 0}
+          >
+            {t("settings.actions.save_and_test")}
+          </button>
+        </div>
+        <div className="settings__row settings__row--stack">
+          <div className="settings__label">{t("settings.fields.ai_raw_feedback")}</div>
+          <div className="settings__feedback-window">{apiMessage ?? t("settings.hints.ai_raw_feedback_empty")}</div>
         </div>
       </div>
     </div>
@@ -548,6 +640,10 @@ export default function App() {
     if (isLocked) return;
     setDrawer({ type: "application_material" });
   };
+  const openCoverLetterGenerate = () => {
+    if (isLocked) return;
+    setDrawer({ type: "cover_letter_generate" });
+  };
 
   const onClose = () => {
     if (isLocked) return;
@@ -565,7 +661,9 @@ export default function App() {
             ? t("app.panel.title.job_applied")
             : drawer.type === "code_management"
               ? t("app.panel.title.code_management")
-              : t("app.panel.title.application_material")
+              : drawer.type === "application_material"
+                ? t("app.panel.title.application_material")
+                : t("app.panel.title.cover_letter_generate")
     : "";
 
   const panelKicker = drawer
@@ -591,8 +689,20 @@ export default function App() {
             ? t("app.panel.summary.job_applied")
             : drawer.type === "code_management"
               ? t("app.panel.summary.code_management")
-              : t("app.panel.summary.application_material")
+              : drawer.type === "application_material"
+                ? t("app.panel.summary.application_material")
+                : t("app.panel.summary.cover_letter_generate")
     : "";
+
+  if (drawer?.type === "cover_letter_generate") {
+    return (
+      <main className="app">
+        <div className="app__content app__content--full">
+          <CoverLetterGeneratorPage t={t} disabled={isLocked} onBack={() => setDrawer(null)} />
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="app">
@@ -644,6 +754,14 @@ export default function App() {
             disabled={isLocked}
           >
             {t("app.main.application_material")}
+          </button>
+          <button
+            type="button"
+            className="main-btn main-btn--primary"
+            onClick={openCoverLetterGenerate}
+            disabled={isLocked}
+          >
+            {t("app.main.cover_letter_generate")}
           </button>
         </section>
       </div>

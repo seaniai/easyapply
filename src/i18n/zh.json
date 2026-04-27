@@ -1,4 +1,7 @@
 {
+  "common": {
+    "edit": "编辑"
+  },
   "app": {
     "title": "EasyApply",
     "subtitle": "求职申请、密码与申请资料管理。",
@@ -9,7 +12,8 @@
     "main": {
       "job_applied": "已申请工作",
       "code_management": "密码管理",
-      "application_material": "申请资料"
+      "application_material": "申请资料",
+      "cover_letter_generate": "求职信生成"
     },
     "panel": {
       "kicker": {
@@ -23,7 +27,8 @@
         "user_management": "用户管理",
         "job_applied": "已申请工作",
         "code_management": "密码管理",
-        "application_material": "申请资料"
+        "application_material": "申请资料",
+        "cover_letter_generate": "求职信生成"
       },
       "summary": {
         "settings": "语言与主题。",
@@ -32,7 +37,8 @@
         "user_management": "管理用户与角色。",
         "job_applied": "管理求职记录。支持导出/批量导入。",
         "code_management": "管理账户密码。支持导出/批量导入。",
-        "application_material": "Cover letter、模板、简历文件夹。"
+        "application_material": "求职信、模板、简历文件夹。",
+        "cover_letter_generate": "基于 JD 与提示词生成并迭代求职信。"
       },
       "actions": {
         "back": "返回"
@@ -50,21 +56,54 @@
   "settings": {
     "sections": {
       "general": "常规",
+      "api_key_test": "API Key 测试",
+      "openai": "OpenAI API Key",
       "user_management": "用户管理"
     },
     "fields": {
       "language": "语言",
-      "theme": "主题"
+      "theme": "主题",
+      "api_key": "API Key",
+      "ai_raw_feedback": "AI 原文反馈",
+      "openai_api_key": "API Key",
+      "openai_model": "模型",
+      "reasoning_effort": "推理强度",
+      "text_verbosity": "文本详细度",
+      "timeout_seconds": "超时(秒)"
     },
     "options": {
       "language_english": "English",
       "language_other": "中文",
       "theme_default": "默认",
       "theme_golden": "金色",
-      "theme_black": "黑色"
+      "theme_black": "黑色",
+      "reasoning_none": "none",
+      "reasoning_low": "low",
+      "reasoning_medium": "medium",
+      "reasoning_high": "high",
+      "reasoning_xhigh": "xhigh",
+      "verbosity_low": "low",
+      "verbosity_medium": "medium",
+      "verbosity_high": "high"
     },
-    "actions": {},
-    "hints": {}
+    "actions": {
+      "save_and_test": "保存并测试",
+      "save_api_key": "保存",
+      "test_api_key": "测试"
+    },
+    "hints": {
+      "api_key_test": "保存后执行一次轻量 API 测试请求。",
+      "ai_raw_feedback_empty": "暂无测试反馈。",
+      "api_key_saved_masked": "已保存（已隐藏）",
+      "api_key_test_success": "API Key 测试成功。",
+      "api_key_test_failed_help": "测试失败。请确认 API Key 有效、模型可用、网络正常。可在 OpenAI 平台申请 Key 并检查模型权限。"
+    },
+    "messages": {
+      "api_profile": "API 配置",
+      "api_help": "请检查 API Key 有效性、模型权限和网络连接。",
+      "api_test_success": "API 测试通过。",
+      "api_test_failed": "API 测试失败：{error}"
+    }
   },
   "account": {
     "titles": {
@@ -272,6 +311,96 @@
     },
     "hints": {
       "folder_not_set": "未设置文件夹。请先创建或选择。"
+    }
+  },
+  "cover_letter_generate": {
+    "sections": {
+      "input_constraints": "JD 输入与约束",
+      "cover_letter_output": "求职信输出",
+      "feedback_iteration": "反馈与迭代",
+      "prompt_iteration": "提示词更新",
+      "prompt_storage": "提示词保存"
+    },
+    "fields": {
+      "jd_text": "JD 文本",
+      "hard_requirements": "硬性约束",
+      "iteration_round": "迭代轮次",
+      "plan_confirmation_notes": "方案确认 / 补充说明",
+      "technical_skills": "技术技能",
+      "behavioural_capabilities": "行为能力",
+      "other_requirements": "其他要求",
+      "iteration_goal": "迭代目标",
+      "prompt_path": "提示词路径",
+      "skill_name": "名称",
+      "skill_keywords": "关键词",
+      "case_context": "案例背景",
+      "case_problem_task": "案例问题 / 任务",
+      "case_method_action": "案例方法 / 行动",
+      "case_result": "案例结果"
+    },
+    "actions": {
+      "browse_prompt_path": "选择提示词文件",
+      "load_prompt": "加载提示词",
+      "generate_cover_letter": "生成求职信",
+      "generating_cover_letter": "生成中...",
+      "update_prompt": "更新",
+      "updating_prompt": "更新中...",
+      "open_prompt_folder": "打开提示词文件夹",
+      "back_to_home": "返回主页",
+      "append_skill": "新增技能",
+      "append_capability": "新增能力",
+      "collapse_skill_update": "收起技能更新",
+      "collapse_capability_update": "收起能力更新"
+    },
+    "placeholders": {
+      "skill_name": "Name / 名称：此处填写案例名称。",
+      "skill_keywords": "Keywords / 关键词：此处填写案例关键词，可人为填写，AI 会基于案例内容补充其它关键词。",
+      "case_context": "Case.Context / 案例背景：此处填写案例背景，例如任职时期、项目环境等信息。",
+      "case_problem_task": "Case.Problem / Task / 案例问题与任务：此处填写核心问题与承担任务。",
+      "case_method_action": "Case.Method / Action / 案例方法与行动：此处填写采取的方法与执行动作。",
+      "case_result": "Case.Result / 案例结果：此处填写可量化结果或实际影响。"
+    },
+    "messages": {
+      "invalid_prompt_path": "提示词文件路径无效。",
+      "empty_prompt_content": "当前提示词内容为空。",
+      "no_prompt_updates": "未提供任何提示词更新内容。",
+      "prompt_version_mismatch": "提示词更新被拒绝：AI 返回版本号与提示词正文中的版本标识不一致。",
+      "prompt_filename_unmatched": "提示词文件名不符合版本命名规则，将使用原路径保存。",
+      "prompt_updated_to": "提示词已更新到 {version}，保存路径：{path}",
+      "invalid_prompt_folder": "无法从当前路径解析提示词文件夹。",
+      "opened_prompt_folder": "已打开提示词文件夹：{folder}",
+      "generated_with_model": "已使用 {model} 生成求职信 v{version}"
+    },
+    "hints": {
+      "jd_raw_paste": "可直接粘贴 JD 页面原文，包含噪声文本也可以。",
+      "hard_requirements_optional": "硬性要求可选，用于最高优先级约束。",
+      "hard_requirements_help": "可选项。系统会提取其中的语义并以最高优先级执行。若 Technical Skills 或 Behavioural Capabilities 不在当前提示词技能矩阵中，会显式反馈 [GAP][TECH]/[GAP][BEHAVIOUR]，需要先更新提示词。",
+      "prompt_iteration_help": "此处可以使用任意语言进行书写，更新的时候 AI 会将其内容统一翻译为英式英语后按照当前 Prompt 的规范进行归档。",
+      "plan_confirmation_notes_help": "首次点击生成会得到阶段 0 匹配方案。请在此填写是否同意所选技能/行为能力及需要调整项，再次点击生成后输出最终求职信。",
+      "stage0_status_label": "Stage-0 状态",
+      "stage0_status_pending": "待生成（先点击一次生成）",
+      "stage0_status_ready": "可确认并生成最终求职信",
+      "stage0_status_gap": "被能力映射缺口阻塞（请先更新 Prompt）",
+      "stage0_status_iterative": "已进入可持续迭代生成",
+      "stage0_waiting_confirmation": "已生成阶段 0 匹配方案。请先查看 Feedback & Iteration，再在下方填写确认/调整内容后生成最终求职信。",
+      "iterative_gap_continue": "当前仍存在能力映射缺口，但不影响继续迭代生成；你可以继续生成或自主决定是否更新 Prompt。",
+      "iterative_waiting_generation": "迭代生成进行中。可继续调整“方案确认/补充说明”后再次点击生成。",
+      "no_plan_notes": "（未填写 方案确认 / 补充说明）",
+      "output_append_only": "新版本会追加在历史版本下方。",
+      "feedback_window_desc": "所有非求职信正文的 AI 消息都会显示在这里。",
+      "prompt_update_rule": "当填写名称时，相关结构化字段必须全部填写。",
+      "missing_prompt_match": "检测到能力映射缺失，请先更新提示词。",
+      "prompt_path_required": "加载或保存前必须先设置提示词路径。",
+      "prompt_loaded": "提示词已加载：{path}",
+      "prompt_saved": "提示词已保存：{path}",
+      "prompt_update_rejected": "提示词更新被拒绝，请检查反馈。",
+      "generated_version": "已生成求职信 {versionLabel}。",
+      "request_failed": "请求失败：{error}",
+      "session_reset": "会话已重置，可开始新的职位。",
+      "prompt_open_failed": "打开提示词文件夹失败：{error}",
+      "prompt_read_failed": "读取提示词失败：{error}",
+      "prompt_write_failed": "写入提示词失败：{error}",
+      "validation_failed": "校验失败：{error}"
     }
   }
 }

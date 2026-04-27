@@ -1,2 +1,2 @@
-export const APP_VERSION = "2.0.1";
-// Should also change the version in src-tauri\Cargo.toml
+export const APP_VERSION = "2.1.1";
+// Should also change versions in src-tauri/Cargo.toml and src-tauri/tauri.conf.json

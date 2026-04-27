@@ -283,7 +283,7 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
           </table>
         </div>
 
-        <div className="settings__section-title" style={{ marginTop: 16 }}>Edit</div>
+        <div className="settings__section-title" style={{ marginTop: 16 }}>{t("common.edit")}</div>
         <div className="settings__row">
           <div className="settings__label">{t("job_applied.fields.company")}</div>
           <input
