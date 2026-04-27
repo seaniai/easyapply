@@ -1,14 +1,21 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const OPENAI_MODEL: &str = "gpt-5.5";
+const FALLBACK_OPENAI_MODEL: &str = "gpt-5.4";
 const DEFAULT_REASONING_EFFORT: &str = "medium";
 const DEFAULT_TEXT_VERBOSITY: &str = "low";
-const FIXED_TIMEOUT_SECONDS: u64 = 45;
+const FIXED_TIMEOUT_SECONDS: u64 = 90;
+const COVER_LETTER_GENERATION_SYSTEM_PROMPT: &str =
+    include_str!("prompts/cover_letter_generation.md");
+const PROMPT_UPDATE_SYSTEM_PROMPT: &str = include_str!("prompts/prompt_update.md");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OpenAiProfile {
@@ -73,6 +80,14 @@ pub struct CoverLetterGenerateRequest {
     pub session_history: Vec<SessionHistoryTurn>,
     #[serde(default)]
     pub iteration_goal: String,
+    #[serde(default)]
+    pub user_confirmation_notes: String,
+    #[serde(default)]
+    pub allow_cover_letter: bool,
+    #[serde(default)]
+    pub workflow_state: u32,
+    #[serde(default)]
+    pub workflow_phase: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -115,6 +130,7 @@ pub struct PromptUpdateRequirements {
 pub struct PromptUpdateRequest {
     pub session_id: String,
     pub previous_prompt_version: String,
+    pub previous_prompt_path: String,
     pub previous_prompt_markdown: String,
     pub update_requirements: PromptUpdateRequirements,
     #[serde(default)]
@@ -126,6 +142,8 @@ pub struct PromptUpdateRequest {
 pub struct PromptUpdateResponse {
     pub status: String,
     pub updated_prompt_markdown: Option<String>,
+    pub updated_prompt_version: Option<String>,
+    pub saved_prompt_path: Option<String>,
     pub feedback_messages: Vec<String>,
     pub model: String,
     pub reasoning_effort: String,
@@ -330,6 +348,42 @@ fn extract_structured_output(resp: &Value) -> Result<Value, String> {
     Err("Could not parse structured model output".to_string())
 }
 
+async fn post_openai_responses(
+    api_key: &str,
+    timeout_seconds: u64,
+    body: &Value,
+) -> Result<Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_seconds))
+        .build()
+        .map_err(|e| format!("OpenAI request failed: {}", e))?;
+
+    let response = client
+        .post("https://api.openai.com/v1/responses")
+        .header("Content-Type", "application/json")
+        .bearer_auth(api_key)
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| format!("OpenAI request failed: {}", e))?;
+
+    let status = response.status();
+    let response_text = response
+        .text()
+        .await
+        .map_err(|e| format!("OpenAI response read failed: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!(
+            "OpenAI request failed (status {}): {}",
+            status.as_u16(),
+            response_text
+        ));
+    }
+
+    serde_json::from_str::<Value>(&response_text).map_err(|e| e.to_string())
+}
+
 async fn call_openai_structured(
     app: &AppHandle,
     system_instruction: &str,
@@ -337,12 +391,16 @@ async fn call_openai_structured(
     schema_name: &str,
     schema: Value,
     max_output_tokens: Option<u32>,
+    model_override: Option<&str>,
+    reasoning_override: Option<&str>,
 ) -> Result<(Value, OpenAiProfile), String> {
     let profile = read_profile(app)?;
     let api_key = read_api_key(app)?;
+    let request_model = model_override.unwrap_or(profile.model.as_str());
+    let request_reasoning = reasoning_override.unwrap_or(profile.reasoning_effort.as_str());
     let mut body = json!({
-      "model": profile.model,
-      "reasoning": { "effort": profile.reasoning_effort },
+      "model": request_model,
+      "reasoning": { "effort": request_reasoning },
       "text": {
         "verbosity": profile.text_verbosity,
         "format": {
@@ -368,40 +426,69 @@ async fn call_openai_structured(
         body["max_output_tokens"] = json!(max_tokens);
     }
 
-    let body_text = body.to_string();
-    let timeout_secs = FIXED_TIMEOUT_SECONDS.to_string();
-    let response = Command::new("curl")
-        .arg("-sS")
-        .arg("-m")
-        .arg(&timeout_secs)
-        .arg("-X")
-        .arg("POST")
-        .arg("https://api.openai.com/v1/responses")
-        .arg("-H")
-        .arg("Content-Type: application/json")
-        .arg("-H")
-        .arg(format!("Authorization: Bearer {}", api_key))
-        .arg("-d")
-        .arg(body_text)
-        .output()
-        .map_err(|e| format!("OpenAI request failed: {}", e))?;
-
-    if !response.status.success() {
-        let stderr = String::from_utf8_lossy(&response.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&response.stdout).trim().to_string();
-        let detail = if !stderr.is_empty() { stderr } else { stdout };
-        return Err(format!(
-            "OpenAI request failed (curl exit code {:?}): {}",
-            response.status.code(),
-            detail
-        ));
-    }
-
-    let response_text = String::from_utf8(response.stdout).map_err(|e| e.to_string())?;
-
-    let response_json: Value = serde_json::from_str(&response_text).map_err(|e| e.to_string())?;
+    let response_json = post_openai_responses(&api_key, FIXED_TIMEOUT_SECONDS, &body).await?;
     let structured = extract_structured_output(&response_json)?;
     Ok((structured, profile))
+}
+
+async fn call_openai_text(
+    app: &AppHandle,
+    system_instruction: &str,
+    user_payload: Value,
+    max_output_tokens: Option<u32>,
+    model_override: Option<&str>,
+    reasoning_override: Option<&str>,
+) -> Result<(String, OpenAiProfile), String> {
+    let profile = read_profile(app)?;
+    let api_key = read_api_key(app)?;
+    let request_model = model_override.unwrap_or(profile.model.as_str());
+    let request_reasoning = reasoning_override.unwrap_or(profile.reasoning_effort.as_str());
+    let mut body = json!({
+      "model": request_model,
+      "reasoning": { "effort": request_reasoning },
+      "text": {
+        "verbosity": profile.text_verbosity
+      },
+      "input": [
+        {
+          "role": "system",
+          "content": [{ "type": "input_text", "text": system_instruction }]
+        },
+        {
+          "role": "user",
+          "content": [{ "type": "input_text", "text": user_payload.to_string() }]
+        }
+      ]
+    });
+
+    if let Some(max_tokens) = max_output_tokens {
+        body["max_output_tokens"] = json!(max_tokens);
+    }
+
+    let response_json = post_openai_responses(&api_key, FIXED_TIMEOUT_SECONDS, &body).await?;
+    if let Some(text) = response_json.get("output_text").and_then(Value::as_str) {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return Ok((trimmed.to_string(), profile));
+        }
+    }
+
+    if let Some(items) = response_json.get("output").and_then(Value::as_array) {
+        for item in items {
+            if let Some(content) = item.get("content").and_then(Value::as_array) {
+                for part in content {
+                    if let Some(text) = part.get("text").and_then(Value::as_str) {
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() {
+                            return Ok((trimmed.to_string(), profile));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Err("OpenAI returned no text output".to_string())
 }
 
 fn cover_letter_response_schema() -> Value {
@@ -431,6 +518,45 @@ fn prompt_update_response_schema() -> Value {
     })
 }
 
+fn version_filename_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"cover_letter_prompt_v\d+_\d+\.md").expect("valid regex"))
+}
+
+fn version_title_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\(V\d+\.\d+\)").expect("valid regex"))
+}
+
+fn parse_prompt_version(raw: &str) -> Result<(u32, u32), String> {
+    let trimmed = raw.trim();
+    let Some((major, minor)) = trimmed.strip_prefix('v').and_then(|v| v.split_once('_')) else {
+        return Err("previousPromptVersion must match v<major>_<minor>".to_string());
+    };
+    let major_num = major
+        .parse::<u32>()
+        .map_err(|_| "Invalid prompt major version".to_string())?;
+    let minor_num = minor
+        .parse::<u32>()
+        .map_err(|_| "Invalid prompt minor version".to_string())?;
+    Ok((major_num, minor_num))
+}
+
+fn bump_minor_version(raw: &str) -> Result<String, String> {
+    let (major, minor) = parse_prompt_version(raw)?;
+    Ok(format!("v{}_{}", major, minor + 1))
+}
+
+fn rewrite_prompt_version_markers(markdown: &str, next_version: &str) -> Result<String, String> {
+    let (major, minor) = parse_prompt_version(next_version)?;
+    let next_file_name = format!("cover_letter_prompt_{}.md", next_version);
+    let next_title = format!("(V{}.{})", major, minor);
+
+    let replaced_filename = version_filename_regex().replace_all(markdown, next_file_name.as_str());
+    let replaced_title = version_title_regex().replace_all(replaced_filename.as_ref(), next_title.as_str());
+    Ok(replaced_title.into_owned())
+}
+
 fn openai_test_response_schema() -> Value {
     json!({
       "type": "object",
@@ -445,16 +571,6 @@ fn openai_test_response_schema() -> Value {
 fn ensure_non_empty(value: &str, field_name: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         return Err(format!("{} is required", field_name));
-    }
-    Ok(())
-}
-
-fn ensure_keywords_have_values(entries: &[String], field_name: &str) -> Result<(), String> {
-    if entries.iter().all(|k| k.trim().is_empty()) {
-        return Err(format!(
-            "{} must include at least one non-empty value",
-            field_name
-        ));
     }
     Ok(())
 }
@@ -498,8 +614,9 @@ fn open_folder_path(path: &Path) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        let explorer_path = path.to_string_lossy().replace('/', "\\");
         Command::new("explorer")
-            .arg(path.to_string_lossy().to_string())
+            .arg(explorer_path)
             .spawn()
             .map_err(|e| e.to_string())?;
         return Ok(());
@@ -569,30 +686,133 @@ pub fn ai_update_openai_profile(
 #[tauri::command]
 pub async fn ai_test_openai_api_key(app: AppHandle) -> Result<OpenAiTestResult, String> {
     ensure_ai_config(&app)?;
+    let profile = read_profile(&app)?;
     let payload = json!({
       "task": "api_key_connectivity_test",
-      "requirement": "Return one concise sentence with model name and active parameters."
+      "requirement": "Return one concise first-person self-introduction sentence with model name/version and active runtime parameters.",
+      "expected_fields": ["model", "version", "reasoning_effort", "text_verbosity", "timeout_seconds"],
+      "configured_profile": {
+        "model": profile.model,
+        "reasoning_effort": profile.reasoning_effort,
+        "text_verbosity": profile.text_verbosity,
+        "timeout_seconds": profile.timeout_seconds
+      },
+      "example": "I am GPT-5.5, running with reasoning=low, verbosity=medium, timeout=90s."
     });
-    let (structured, profile) = call_openai_structured(
-        &app,
-        "You are a diagnostic assistant. Return one short sentence introducing the model version and active runtime parameters.",
-        payload,
-        "openai_api_key_test",
-        openai_test_response_schema(),
-        Some(80),
-    )
-    .await?;
+    let mut errors: Vec<String> = Vec::new();
 
-    let parsed: OpenAiTestModelOutput =
-        serde_json::from_value(structured).map_err(|e| e.to_string())?;
-    Ok(OpenAiTestResult {
-        ok: true,
-        intro: parsed.intro,
-        model: profile.model,
-        reasoning_effort: profile.reasoning_effort,
-        text_verbosity: profile.text_verbosity,
-        timeout_seconds: profile.timeout_seconds,
-    })
+    for _attempt in 0..2 {
+        // 1) primary model structured (force low reasoning for test stability)
+        match call_openai_structured(
+            &app,
+            "You are a diagnostic assistant. Return JSON only in this exact shape: {\"intro\":\"...\"}. The intro must be one short first-person self-introduction sentence and MUST mention model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
+            payload.clone(),
+            "openai_api_key_test",
+            openai_test_response_schema(),
+            Some(80),
+            None,
+            Some("low"),
+        )
+        .await
+        {
+            Ok((structured, profile)) => {
+                let parsed: OpenAiTestModelOutput =
+                    serde_json::from_value(structured).map_err(|e| e.to_string())?;
+                return Ok(OpenAiTestResult {
+                    ok: true,
+                    intro: parsed.intro,
+                    model: profile.model,
+                    reasoning_effort: "low".to_string(),
+                    text_verbosity: profile.text_verbosity,
+                    timeout_seconds: profile.timeout_seconds,
+                });
+            }
+            Err(e) => errors.push(e),
+        }
+
+        // 2) fallback model structured
+        match call_openai_structured(
+            &app,
+            "You are a diagnostic assistant. Return JSON only in this exact shape: {\"intro\":\"...\"}. The intro must be one short first-person self-introduction sentence and MUST mention model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
+            payload.clone(),
+            "openai_api_key_test",
+            openai_test_response_schema(),
+            Some(80),
+            Some(FALLBACK_OPENAI_MODEL),
+            Some("low"),
+        )
+        .await
+        {
+            Ok((structured, profile)) => {
+                let parsed: OpenAiTestModelOutput =
+                    serde_json::from_value(structured).map_err(|e| e.to_string())?;
+                return Ok(OpenAiTestResult {
+                    ok: true,
+                    intro: parsed.intro,
+                    model: profile.model,
+                    reasoning_effort: "low".to_string(),
+                    text_verbosity: profile.text_verbosity,
+                    timeout_seconds: profile.timeout_seconds,
+                });
+            }
+            Err(e) => errors.push(e),
+        }
+
+        // 3) primary model plain text
+        match call_openai_text(
+            &app,
+            "You are a diagnostic assistant. Return one short first-person self-introduction sentence and include model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
+            payload.clone(),
+            Some(80),
+            None,
+            Some("low"),
+        )
+        .await
+        {
+            Ok((intro_text, profile)) => {
+                return Ok(OpenAiTestResult {
+                    ok: true,
+                    intro: intro_text,
+                    model: profile.model,
+                    reasoning_effort: "low".to_string(),
+                    text_verbosity: profile.text_verbosity,
+                    timeout_seconds: profile.timeout_seconds,
+                });
+            }
+            Err(e) => errors.push(e),
+        }
+
+        // 4) fallback model plain text
+        match call_openai_text(
+            &app,
+            "You are a diagnostic assistant. Return one short first-person self-introduction sentence and include model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
+            payload.clone(),
+            Some(80),
+            Some(FALLBACK_OPENAI_MODEL),
+            Some("low"),
+        )
+        .await
+        {
+            Ok((intro_text, profile)) => {
+                return Ok(OpenAiTestResult {
+                    ok: true,
+                    intro: intro_text,
+                    model: profile.model,
+                    reasoning_effort: "low".to_string(),
+                    text_verbosity: profile.text_verbosity,
+                    timeout_seconds: profile.timeout_seconds,
+                });
+            }
+            Err(e) => errors.push(e),
+        }
+    }
+
+    Err(
+        errors
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "API test failed with unknown error".to_string()),
+    )
 }
 
 #[tauri::command]
@@ -607,15 +827,6 @@ pub async fn ai_generate_cover_letter(
     ensure_non_empty(&request.prompt_markdown, "promptMarkdown")?;
 
     ensure_non_empty(&request.iteration_goal, "iterationGoal")?;
-    ensure_keywords_have_values(
-        &request.hard_requirements.technical_skills,
-        "hardRequirements.technicalSkills",
-    )?;
-    ensure_keywords_have_values(
-        &request.hard_requirements.behavioural_capabilities,
-        "hardRequirements.behaviouralCapabilities",
-    )?;
-
     let payload = json!({
         "task": "generate_cover_letter",
         "session": {
@@ -628,15 +839,23 @@ pub async fn ai_generate_cover_letter(
             "hardRequirements": request.hard_requirements,
             "promptMarkdown": request.prompt_markdown,
             "iterationGoal": request.iteration_goal
+        },
+        "workflow": {
+            "allowCoverLetter": request.allow_cover_letter,
+            "userConfirmationNotes": request.user_confirmation_notes,
+            "state": request.workflow_state,
+            "phase": request.workflow_phase
         }
     });
 
     let (structured, profile) = call_openai_structured(
         &app,
-        "You generate British-English cover letters. Parse noisy JD text, follow hard requirements first, then prompt constraints. If any hard requirement cannot be grounded by the provided prompt competency map, set status=needs_prompt_update, explain missing requirements, and leave coverLetter empty. Always return JSON matching schema.",
+        COVER_LETTER_GENERATION_SYSTEM_PROMPT,
         payload,
         "cover_letter_generation",
         cover_letter_response_schema(),
+        None,
+        None,
         None,
     )
     .await?;
@@ -691,6 +910,7 @@ pub async fn ai_update_cover_letter_prompt(
     ensure_ai_config(&app)?;
     ensure_non_empty(&request.session_id, "sessionId")?;
     ensure_non_empty(&request.previous_prompt_version, "previousPromptVersion")?;
+    ensure_non_empty(&request.previous_prompt_path, "previousPromptPath")?;
     ensure_non_empty(&request.previous_prompt_markdown, "previousPromptMarkdown")?;
     validate_prompt_update_requirements(&request.update_requirements)?;
 
@@ -709,10 +929,12 @@ pub async fn ai_update_cover_letter_prompt(
 
     let (structured, profile) = call_openai_structured(
         &app,
-        "You update cover-letter prompt files. Convert added content to British English, preserve existing prompt structure, and integrate structured updates for skills/capabilities. If requirements are contradictory or insufficient, set status=rejected and explain via feedbackMessages. Always return JSON matching schema.",
+        PROMPT_UPDATE_SYSTEM_PROMPT,
         payload,
         "cover_letter_prompt_update",
         prompt_update_response_schema(),
+        None,
+        None,
         None,
     )
     .await?;
@@ -722,13 +944,36 @@ pub async fn ai_update_cover_letter_prompt(
     let has_prompt =
         parsed.status == "updated" && !parsed.updated_prompt_markdown.trim().is_empty();
 
+    let mut updated_prompt_markdown = None;
+    let mut updated_prompt_version = None;
+    let mut saved_prompt_path = None;
+
+    if has_prompt {
+        let next_version = bump_minor_version(&request.previous_prompt_version)?;
+        let rewritten_markdown =
+            rewrite_prompt_version_markers(&parsed.updated_prompt_markdown, &next_version)?;
+
+        let previous_path = PathBuf::from(&request.previous_prompt_path);
+        let parent = previous_path.parent().ok_or_else(|| {
+            "previousPromptPath must include a valid parent directory".to_string()
+        })?;
+        let file_name = format!("cover_letter_prompt_{}.md", next_version);
+        let next_path = parent.join(file_name);
+        if let Some(folder) = next_path.parent() {
+            fs::create_dir_all(folder).map_err(|e| e.to_string())?;
+        }
+        fs::write(&next_path, &rewritten_markdown).map_err(|e| e.to_string())?;
+
+        updated_prompt_markdown = Some(rewritten_markdown);
+        updated_prompt_version = Some(next_version);
+        saved_prompt_path = Some(next_path.to_string_lossy().to_string());
+    }
+
     Ok(PromptUpdateResponse {
         status: parsed.status,
-        updated_prompt_markdown: if has_prompt {
-            Some(parsed.updated_prompt_markdown)
-        } else {
-            None
-        },
+        updated_prompt_markdown,
+        updated_prompt_version,
+        saved_prompt_path,
         feedback_messages: parsed.feedback_messages,
         model: profile.model,
         reasoning_effort: profile.reasoning_effort,

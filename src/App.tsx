@@ -34,6 +34,7 @@ const THEME_STORAGE_KEY = "easyapply-theme";
 const LANGUAGE_STORAGE_KEY = "easyapply-language";
 const LANGUAGE_CHANGE_EVENT = "easyapply-language-change";
 const PANEL_WIDTH_STORAGE_KEY = "easyapply-panel-width";
+const API_KEY_INPUT_STORAGE_KEY = "easyapply-api-key-input";
 const PANEL_WIDTH_MIN = 360;
 const PANEL_WIDTH_DEFAULT = 420;
 /** Left column (title + meta + buttons) min width so meta right edge aligns with buttons right edge. */
@@ -128,7 +129,7 @@ function applyBodyTheme(tk: ThemeKey) {
 function SettingsView(props: { disabled?: boolean }) {
   const { language, setLanguage, t } = useI18n();
   const [theme, setTheme] = useState<ThemeKey>("Default");
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(API_KEY_INPUT_STORAGE_KEY) ?? "");
   const [apiBusy, setApiBusy] = useState(false);
   const [apiMessage, setApiMessage] = useState<string | null>(null);
   const [apiProfile, setApiProfile] = useState<{
@@ -184,15 +185,9 @@ function SettingsView(props: { disabled?: boolean }) {
         textVerbosity: string;
         timeoutSeconds: number;
       }>("ai_test_openai_api_key");
-      setApiMessage(
-        `${t("settings.messages.api_test_success")} ${test.intro}\n` +
-        `${t("settings.messages.api_profile")}: ${test.model}, reasoning=${test.reasoningEffort}, verbosity=${test.textVerbosity}, timeout=${test.timeoutSeconds}s`
-      );
-      setApiKey("");
+      setApiMessage(test.intro);
     } catch (e) {
-      setApiMessage(
-        `${t("settings.messages.api_test_failed", { error: String(e) })}\n${t("settings.messages.api_help")}`
-      );
+      setApiMessage(String(e));
     } finally {
       setApiBusy(false);
     }
@@ -240,13 +235,17 @@ function SettingsView(props: { disabled?: boolean }) {
       <div className="settings__section">
         <div className="settings__section-title">{t("settings.sections.api_key_test")}</div>
         <div className="settings__hint">{t("settings.hints.api_key_test")}</div>
-        <div className="settings__row">
+        <div className="settings__row settings__row--stack">
           <div className="settings__label">{t("settings.fields.api_key")}</div>
           <input
             className="settings__control"
             type="password"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setApiKey(v);
+              localStorage.setItem(API_KEY_INPUT_STORAGE_KEY, v);
+            }}
             disabled={props.disabled || apiBusy}
             placeholder="sk-..."
           />
@@ -266,7 +265,10 @@ function SettingsView(props: { disabled?: boolean }) {
             {t("settings.actions.save_and_test")}
           </button>
         </div>
-        {apiMessage ? <div className="settings__hint" style={{ whiteSpace: "pre-line" }}>{apiMessage}</div> : null}
+        <div className="settings__row settings__row--stack">
+          <div className="settings__label">{t("settings.fields.ai_raw_feedback")}</div>
+          <div className="settings__feedback-window">{apiMessage ?? t("settings.hints.ai_raw_feedback_empty")}</div>
+        </div>
       </div>
     </div>
   );
@@ -659,7 +661,9 @@ export default function App() {
             ? t("app.panel.title.job_applied")
             : drawer.type === "code_management"
               ? t("app.panel.title.code_management")
-              : t("app.panel.title.application_material")
+              : drawer.type === "application_material"
+                ? t("app.panel.title.application_material")
+                : t("app.panel.title.cover_letter_generate")
     : "";
 
   const panelKicker = drawer
@@ -685,8 +689,20 @@ export default function App() {
             ? t("app.panel.summary.job_applied")
             : drawer.type === "code_management"
               ? t("app.panel.summary.code_management")
-              : t("app.panel.summary.application_material")
+              : drawer.type === "application_material"
+                ? t("app.panel.summary.application_material")
+                : t("app.panel.summary.cover_letter_generate")
     : "";
+
+  if (drawer?.type === "cover_letter_generate") {
+    return (
+      <main className="app">
+        <div className="app__content app__content--full">
+          <CoverLetterGeneratorPage t={t} disabled={isLocked} onBack={() => setDrawer(null)} />
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="app">
@@ -771,7 +787,6 @@ export default function App() {
               {drawer.type === "job_applied" && <JobAppliedPanel t={t} disabled={isLocked} />}
               {drawer.type === "code_management" && <CodeManagementPanel t={t} disabled={isLocked} />}
               {drawer.type === "application_material" && <ApplicationMaterialPanel t={t} disabled={isLocked} />}
-              {drawer.type === "cover_letter_generate" && <CoverLetterGeneratorPage t={t} disabled={isLocked} onBack={onClose} />}
             </div>
             <div className="panel__footer">
               <button className="btn" onClick={onClose} disabled={isLocked}>

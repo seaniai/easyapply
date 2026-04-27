@@ -284,7 +284,7 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
           </table>
         </div>
 
-        <div className="settings__section-title" style={{ marginTop: 16 }}>Edit</div>
+        <div className="settings__section-title" style={{ marginTop: 16 }}>{t("common.edit")}</div>
         <div className="settings__row">
           <div className="settings__label">{t("code_management.fields.account")}</div>
           <input
