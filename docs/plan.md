@@ -2,6 +2,8 @@
 
 **Purpose:** Desktop app for managing job applications, account/password records, application materials, and AI-assisted cover letter generation. Built with Tauri 2 + React; data stored in local SQLite + JSON config. This doc is the source of truth for architecture, DB schema, and APIs.
 
+**Parallel track (planned):** A browser-accessible deployment on **Microsoft Azure** with **GitHub Actions CI/CD** to build and push container images automatically. Desktop **v2.1.2+** on `main` remains the primary shipping surface until the cloud track reaches parity; see **§10**.
+
 ---
 
 ## 1. Product Scope
@@ -56,7 +58,7 @@ src-tauri/
 └── Cargo.toml            # tauri, rusqlite, csv, serde, tauri-plugin-dialog, tokio, uuid, etc.
 
 docs/
-└── plan.md               # This file
+└── plan.md               # This file (includes §10 Azure / CI/CD roadmap)
 ```
 
 ---
@@ -179,5 +181,109 @@ docs/
 
 ## 9. Next Steps
 
-- **Online / mobile version:** Build a web-based version of easyapply that is accessible from mobile devices, combining **permission management** and **security/encryption** (e.g. TLS, secure auth, encrypted data at rest or in transit). The database would be hosted on a **private server** instead of local SQLite.
+- **Desktop (ongoing):** Continue releases from `main` with version bumps in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and `src/version.ts`. Tag stable baselines (e.g. `v2.1.2`) before large parallel work.
+- **Online / mobile (Azure track):** Follow **§10** — HTTP service + container + CI/CD; combine **permission management** with TLS, authenticated APIs, and a clear data path (SQLite on persistent storage or managed PostgreSQL). Do not remove Tauri capabilities from `main` while the cloud stack matures on a dedicated branch.
 
+---
+
+## 10. Azure hosting & CI/CD development plan
+
+This section describes how to evolve the repo **without dropping** current desktop behaviour: add a **parallel branch**, container artefacts, and automation so Azure App Service (Linux container) can **pull new images on each merge** to that branch.
+
+### 10.1 Principles
+
+| Principle | Detail |
+|-----------|--------|
+| **Single repo** | Keep Tauri + React in `main`. Cloud-specific files (`Dockerfile`, `.github/workflows/`, optional `server/` crate) live on a long-lived branch (e.g. `feat/azure-web`) or are merged to `main` once stable **without** breaking `npm run tauri build`. |
+| **Baseline tag** | Branch from **`v2.1.2`** (or later release tags) so rollbacks and diffs are obvious. |
+| **Desktop unchanged** | `main` continues to produce the Windows (and optional cross-platform) installer. Cloud work adds **new binaries / workflows**, not replacements for `app_lib::run()` until explicitly switched. |
+| **Secrets** | OpenAI keys and DB connection strings live in **Azure App settings** or **Key Vault references**, never in the frontend bundle or public GitHub vars. |
+
+### 10.2 Target Azure shape (aligned with current portal setup)
+
+- **Compute:** **Azure App Service**, **Linux**, **single-container** Web App (already provisioned with a placeholder image `mcr.microsoft.com/appsvc/staticsite:latest`).
+- **Registry:** **Azure Container Registry (ACR)** — store `easyapply-api:<tag>` images built in CI.
+- **Networking:** Public HTTPS (`httpsOnly`), optional custom domain later. **VNet integration** only if private database or internal dependencies require it.
+- **SKU:** **Basic B1** (or equivalent) for early API traffic; enable **Always On** and a **health check path** (e.g. `/health`) once the real service ships.
+- **Database (phase 1):** Keep **SQLite** only if the file lives on **persistent storage** (e.g. App Service `/home` or mounted **Azure Files**); document path and backup. **Phase 2:** migrate to **Azure Database for PostgreSQL** if multi-instance or stronger backup SLAs are needed.
+
+### 10.3 Application architecture (cloud)
+
+1. **HTTP layer (new)**  
+   - Add a **Rust binary** (e.g. `easyapply-server`) using **Axum** (or Actix) that listens on **`0.0.0.0:$PORT`** (`PORT` from Azure).  
+   - Expose REST (or JSON-RPC) routes that mirror today’s `invoke` contracts where possible.
+
+2. **Shared logic**  
+   - Refactor `auth`, `easyapply`, `ai` modules so core operations can run with an **`AppHandle`-free context** (paths from env or injected config instead of `app.path().app_*_dir()` only). Tauri keeps using `AppHandle`; the server passes explicit base directories.
+
+3. **Frontend**  
+   - **Option A (recommended early):** Build Vite to `dist/` and let Axum **serve static files** + API on one origin (simple cookies / CSRF).  
+   - **Option B:** Host `dist/` on Azure Static Web Apps or Blob + CDN; configure **CORS** on Axum.  
+   - Replace `invoke` with a thin client (`fetch`) behind `import.meta.env.VITE_API_BASE` or build-time flags; keep a **Tauri vs Web** detection guard so one codebase serves both until split is unnecessary.
+
+4. **Desktop-only features**  
+   - `tauri-plugin-dialog` (folder pickers, “open in Explorer”) → **web equivalents:** `<input type="file">`, zip download for exports, server-side paths for “last export dir” stored in DB/config instead of native dialogs.
+
+### 10.4 CI/CD (GitHub Actions → ACR → App Service)
+
+**Goals:** On push (or manual `workflow_dispatch`) to the deployment branch, **build Linux amd64 image**, **push to ACR**, **update the Web App to the new tag** (e.g. `:${{ github.sha }}` or `latest` with digest).
+
+**Recommended workflow layout:**
+
+```
+.github/workflows/azure-deploy.yml   # or split: build.yml + deploy.yml
+```
+
+**Steps (conceptual):**
+
+1. **Checkout** repo (deployment branch).  
+2. **Log in to Azure** with **OIDC** (`azure/login`) using a **federated credential** from Entra ID → no long-lived Azure password in GitHub Secrets (use `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` only).  
+3. **Log in to ACR** (`az acr login` or `docker login` via token from `az acr login --expose-token`).  
+4. **Docker build** multi-stage Dockerfile (Rust release + minimal runtime image).  
+5. **Docker push** `acrName.azurecr.io/easyapply-api:<tag>`.  
+6. **Update App Service** container settings (`az webapp config container set` or Azure REST) to point at the new image digest; optional **slot swap** later for blue/green.
+
+**Trigger discipline (avoid accidental deploys):**
+
+```yaml
+on:
+  push:
+    branches: [feat/azure-web]   # example only
+  workflow_dispatch:             # manual runs for testing
+```
+
+Optionally add **`paths`** filters so unrelated `README` edits on `main` do not trigger cloud builds.
+
+**GitHub configuration checklist:**
+
+- Repository **Environments** (e.g. `production`) with **required reviewers** if desired.  
+- **OIDC federated identity** in Azure for `repo:ORG/easyapply:ref:refs/heads/feat/azure-web`.  
+- ACR **AcrPull** granted to the Web App’s **managed identity** (preferred over admin user password).
+
+### 10.5 Local verification (before Azure)
+
+- **Docker Desktop (Windows):** `docker build -t easyapply-api:local .` then `docker run -p 8080:8080 -e PORT=8080 easyapply-api:local` and hit `http://localhost:8080/health`.  
+- Matches **Linux** runtime on App Service; fixes port binding and missing `libssl` issues early.
+
+### 10.6 Security & operations
+
+- **TLS:** Terminated at App Service; keep **`httpsOnly`** enabled.  
+- **Auth:** Reuse existing **auth.db semantics** over HTTP (session cookies or short-lived JWT + refresh); or integrate **Microsoft Entra External ID** later and map external `sub` to internal users.  
+- **Rate limiting / IP restrictions:** Add at App Service **Access Restrictions** or API Gateway (e.g. Front Door) when exposing beyond personal use.  
+- **Observability:** Enable **Application Insights** with **OpenTelemetry** from Rust when ready (code-less agents do not auto-instrument Rust containers).  
+- **Backups:** Export SQLite on a schedule or use managed Postgres backups when migrated.
+
+### 10.7 Deliverables checklist (implementation order)
+
+1. `Dockerfile` (multi-stage) + `.dockerignore`.  
+2. `easyapply-server` binary + minimal `/health` route.  
+3. GitHub workflow with **OIDC** + ACR push + **App Service container update**.  
+4. Refactor path/config for server vs Tauri (`AppHandle`).  
+5. Frontend **API client** + feature flag / env for web build.  
+6. Replace dialog-based flows with web file APIs for CSV and materials.  
+7. Document **Azure resource names**, subscription, and **rollback** (`az webapp config container set` to previous tag).
+
+### 10.8 Documentation & versioning
+
+- Keep **§8** version numbers for **desktop releases**.  
+- Optionally introduce a **`SERVER_VERSION`** or image tag scheme independent of desktop `APP_VERSION` until release processes unify.
