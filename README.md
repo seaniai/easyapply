@@ -1,13 +1,15 @@
 # easyapply
 
-A desktop app for managing job applications, account/password records, and application materials (cover letter, template, CV). Built with **Tauri 2** and **React**; data is stored locally in SQLite with CSV export/import.
+A desktop app for managing job applications, account/password records, application materials, and AI-assisted cover letter generation. Built with **Tauri 2** and **React**; data is stored locally in SQLite with CSV export/import.
 
 ## Features
 
 - **Job Applied** — CRUD for job records (company, role, via, date, status, comments). Export/import CSV (UTF-8). Resizable preview columns; confirmations for Save, Update, Delete, and Import.
 - **Code Management** — CRUD for account/password entries (account, username, password, tel, email, comments). Same CSV workflow; password fields show plain text on hover.
 - **Application Material** — Three modules (Cover Letter, Template, CV). Create folder, open last-used folder per module.
+- **Cover Letter Generate** — Full-page workflow for Stage-0 planning and iterative generation. Includes Prompt Update, feedback history, prompt-path memory, and iteration round display.
 - **Settings** — Language (English / 中文), theme (Default / Golden / Black).
+- **OpenAI Settings** — Save/test API key, configure reasoning/text verbosity, and view raw AI test feedback.
 - **Account** — Login, logout, change password, optional “remember me”.
 - **User Management** — Export users CSV, upsert/delete user, bulk apply CSV (Admin only). Uses same auth DB as login.
 
@@ -51,7 +53,7 @@ src/                    # Frontend (React + Vite)
 ├── App.tsx             # Main layout, header, panels
 ├── main.tsx            # Entry: AuthProvider, Router, App
 ├── auth/               # AuthProvider, AuthManager
-├── panels/             # JobAppliedPanel, CodeManagementPanel, ApplicationMaterialPanel
+├── panels/             # JobAppliedPanel, CodeManagementPanel, ApplicationMaterialPanel, CoverLetterGeneratorPage
 ├── i18n/               # en.json, zh.json
 ├── style/              # theme.css
 ├── utils/               # confirm.ts (dialog helper)
@@ -61,13 +63,21 @@ src-tauri/              # Backend (Rust)
 ├── src/
 │   ├── lib.rs          # Tauri setup, pick_export_folder, pick_file_csv
 │   ├── auth/           # auth.db, login, user management
-│   └── easyapply.rs    # easyapply.db, applied/code CRUD, CSV, app material paths
+│   ├── easyapply.rs    # easyapply.db, applied/code CRUD, CSV, app material paths
+│   ├── ai.rs           # OpenAI profile/key, cover letter generation, prompt update
+│   └── prompts/        # System prompts for cover-letter generation and prompt update
 ├── capabilities/       # default.json (permissions)
 └── tauri.conf.json
 
 docs/
 └── plan.md             # Architecture, DB schema, backend commands
 ```
+
+## Cover Letter Prompt Versioning
+
+- Prompt update files are saved as `cover_letter_prompt_v<major>_<minor>.md`.
+- Version bump and file naming are controlled by backend (`src-tauri/src/ai.rs`), not frontend.
+- Current rule in code: increment **minor** by 1 on successful prompt update, rewrite version markers in markdown, then save to the same directory as the previous prompt file.
 
 ## Development & debugging
 

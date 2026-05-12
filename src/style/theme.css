@@ -775,11 +775,12 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   height: 100%;
 }
 
 .clg__col--right {
-  overflow: visible;
+  overflow-x: clip;
   padding-right: 0;
 }
 
@@ -953,20 +954,30 @@ body {
 }
 
 .clg__feedback-window {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   border: var(--b-1) solid var(--c-panel-border);
   border-radius: var(--r-btn);
   background: var(--c-card-fg);
+  color: var(--c-panel-fg);
   padding: var(--sp-3);
   min-height: 180px;
-  max-height: none;
-  overflow: visible;
+  max-height: min(50vh, 420px);
+  overflow: auto;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: var(--fs-info);
   line-height: 1.35;
 }
 
 .clg__feedback-item {
   margin: 0 0 var(--sp-2) 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .clg__section-divider {

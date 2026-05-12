@@ -1,6 +1,6 @@
 # easyapply — Architecture & Design
 
-**Purpose:** Desktop app for managing job applications, account/password records, and application materials (cover letter, template, CV). Built with Tauri 2 + React; data stored in a local SQLite DB and config in JSON. This doc is the single source of truth for architecture, DB schema, and APIs.
+**Purpose:** Desktop app for managing job applications, account/password records, application materials, and AI-assisted cover letter generation. Built with Tauri 2 + React; data stored in local SQLite + JSON config. This doc is the source of truth for architecture, DB schema, and APIs.
 
 ---
 
@@ -9,7 +9,9 @@
 - **Job Applied:** CRUD for job records (company, role, via, date, status, comments). Export/import CSV; choose export folder; “Open folder” opens last export folder.
 - **Code Management:** CRUD for account/password records (account, username, password, tel, email, comments). Same CSV export/import and folder behaviour as Job Applied.
 - **Application Material:** Three modules — Cover Letter, Template, CV. Each has “Create folder” (pick path, create dir, persist) and “Open folder” (open last used path).
+- **Cover Letter Generate:** Full-page workflow with state machine (`state=0` Stage-0 planning; `state>=1` iterative flow), feedback/iteration history, prompt update tools, and cover letter version output.
 - **Settings:** Language (en/zh), theme (Default/Golden/Black). Stored in localStorage; no backend.
+- **OpenAI Settings:** API key save/test, profile tuning (reasoning effort, text verbosity), timeout display, raw test feedback.
 - **Account:** Login/logout, change password, optional “remember me”. Remote/server UI is a placeholder.
 - **User Management:** Renamed from “Documents”; Path (Modules root) removed. AuthManager (export users CSV, upsert user, bulk apply CSV). Admin-only.
 
@@ -33,13 +35,13 @@ Auth (auth.db) is shared for login and User Management; easyapply uses **easyapp
 ```
 src/
 ├── main.tsx              # Entry: AuthProvider, BrowserRouter, single route "/" → App
-├── App.tsx               # Main UI: header (title, Settings/Account/User Management), 3 main buttons, right panel
+├── App.tsx               # Main UI: header + modules; CLG uses full-page mode
 ├── version.ts            # APP_VERSION (keep in sync with Cargo.toml / tauri.conf.json)
 ├── style/                # index.css, theme.css (tokens, layout, panel, settings, main-btn, panel-table)
 ├── i18n/                 # en.json, zh.json (all UI strings)
 ├── auth/                 # AuthProvider, AuthManager, auth_manager_types, auth.css
 ├── server/               # ServerPlugin (placeholder for remote connection)
-├── panels/               # JobAppliedPanel, CodeManagementPanel, ApplicationMaterialPanel
+├── panels/               # JobAppliedPanel, CodeManagementPanel, ApplicationMaterialPanel, CoverLetterGeneratorPage
 └── assets/               # Icons (setting, account, document)
 
 src-tauri/
@@ -47,7 +49,9 @@ src-tauri/
 │   ├── lib.rs            # Tauri entry, setup (auth + easyapply DB), invoke handler registration
 │   ├── main.rs           # run()
 │   ├── auth/             # auth.db: users, roles, permissions, sessions; login/logout/CSV/upsert
-│   └── easyapply.rs      # easyapply.db + easyapply.json; applied/code CRUD, CSV, app material paths
+│   ├── easyapply.rs      # easyapply.db + easyapply.json; applied/code CRUD, CSV, app material paths
+│   ├── ai.rs             # OpenAI config/key/test; cover-letter generation; prompt update persistence/versioning
+│   └── prompts/          # cover_letter_generation.md, prompt_update.md
 ├── tauri.conf.json       # Product name, identifier, window, build
 └── Cargo.toml            # tauri, rusqlite, csv, serde, tauri-plugin-dialog, tokio, uuid, etc.
 
@@ -131,15 +135,30 @@ docs/
   - `app_material_create_folder(kind, path)` → creates dir at `path`, sets and returns path.  
   - `app_material_open_folder(kind)` → opens stored path in explorer (errors if not set).
 
+**AI / Cover Letter (ai.rs):**
+
+- `ai_get_openai_profile` / `ai_update_openai_profile` / `ai_save_openai_api_key` / `ai_test_openai_api_key`
+- `ai_generate_cover_letter`
+  - consumes JD text, prompt markdown, hard constraints, workflow metadata, and session history
+  - returns `status`, optional `coverLetter`, feedback messages, and gap requirements
+- `ai_update_cover_letter_prompt`
+  - receives previous prompt version/path/content + structured update requirements
+  - asks model for updated markdown content
+  - backend computes next prompt version (current rule: `minor + 1`)
+  - backend rewrites version markers in markdown and saves `cover_letter_prompt_v<major>_<minor>.md` in same directory
+  - returns `updatedPromptVersion` and `savedPromptPath`
+- `ai_read_text_file` / `ai_write_text_file` / `ai_open_folder`
+
 ---
 
 ## 6. Frontend Architecture
 
 - **Route:** Only `/` → `App`.
-- **State:** `AuthProvider` (login state, token, `hasPerm`); panel open state in `App` (`drawer`: settings | account | user_management | job_applied | code_management | application_material | null).
-- **UI:** Header (title “easyapply”, subtitle, time, version, Settings / Account / User Management icons). Main area: three buttons (Job Applied, Code Management, Application Material). Right panel (same style as before) shows content for the selected drawer; all interactions (forms, tables, export/import, open folder) are in the panel.
+- **State:** `AuthProvider` (login state, token, `hasPerm`); panel/full-page mode state in `App`.
+- **UI:** Header (title/time/version + Settings/Account/User Management). Main area includes four entries: Job Applied, Code Management, Application Material, Cover Letter Generate.
+- **Layout behavior:** Job/Code/Application Material render in the right drawer panel; Cover Letter Generate renders as a dedicated full page.
 - **Lock behaviour:** If not logged in, main buttons and Settings/User Management are disabled and the panel is forced to Account until the user signs in.
-- **i18n:** localStorage `easyapply-language` (en | zh), `easyapply-theme` (Default | Golden | Black). Body class `theme-golden` / `theme-black` for themes. Translation keys in en.json / zh.json under `app`, `settings`, `account`, `user_management`, `auth_manager`, `job_applied`, `code_management`, `application_material`.
+- **i18n:** localStorage `easyapply-language` (en | zh), `easyapply-theme` (Default | Golden | Black). Translation keys include `cover_letter_generate` in both language packs.
 
 ---
 
@@ -152,7 +171,8 @@ docs/
 
 ## 8. Version & Build
 
-- Frontend version in `src/version.ts`; keep in sync with `src-tauri/Cargo.toml` and `tauri.conf.json` if needed.
+- Frontend version in `src/version.ts`; keep in sync with `src-tauri/Cargo.toml` and `tauri.conf.json`.
+- Current app version target: `2.1.2`.
 - Build: `npm run build` (tsc + vite) → dist; Tauri packs the app. No extra bundle resources.
 
 ---
