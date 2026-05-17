@@ -5,6 +5,7 @@
   "app": {
     "title": "EasyApply",
     "subtitle": "求职申请、密码与申请资料管理。",
+    "subtitle_web": "求职申请与密码管理。",
     "meta": {
       "time": "时间",
       "version": "版本"
@@ -268,7 +269,14 @@
     "save_confirm": "保存为新条目？将修改数据库。",
     "update_confirm": "更新本条记录？将修改数据库。",
     "delete_confirm": "删除本条记录？此操作不可恢复。",
-    "import_confirm": "导入将完全替换现有数据，文件格式需与导出一致。是否继续？"
+    "import_confirm": "导入将完全替换现有数据，文件格式需与导出一致。是否继续？",
+    "search": {
+      "placeholder": "搜索记录…",
+      "prev": "上一条",
+      "next": "下一条",
+      "count": "{current} / {total}",
+      "no_results": "无匹配"
+    }
   },
   "code_management": {
     "fields": {
@@ -297,7 +305,14 @@
     "save_confirm": "保存为新条目？将修改数据库。",
     "update_confirm": "更新本条记录？将修改数据库。",
     "delete_confirm": "删除本条记录？此操作不可恢复。",
-    "import_confirm": "导入将完全替换现有数据，文件格式需与导出一致。是否继续？"
+    "import_confirm": "导入将完全替换现有数据，文件格式需与导出一致。是否继续？",
+    "search": {
+      "placeholder": "搜索记录…",
+      "prev": "上一条",
+      "next": "下一条",
+      "count": "{current} / {total}",
+      "no_results": "无匹配"
+    }
   },
   "application_material": {
     "modules": {

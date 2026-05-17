@@ -4,6 +4,11 @@
 mod ai;
 mod auth;
 mod easyapply;
+pub mod paths;
+pub mod secrets;
+
+#[cfg(feature = "server")]
+pub mod server;
 
 #[tauri::command]
 async fn pick_export_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {

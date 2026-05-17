@@ -5,6 +5,7 @@
   "app": {
     "title": "EasyApply",
     "subtitle": "Job applications, codes, and application materials.",
+    "subtitle_web": "Job applications and credential management.",
     "meta": {
       "time": "Time",
       "version": "Version"
@@ -270,7 +271,14 @@
     "save_confirm": "Save as a new entry? This will modify the database.",
     "update_confirm": "Update this record? This will modify the database.",
     "delete_confirm": "Delete this record? This cannot be undone.",
-    "import_confirm": "Import will replace ALL existing data. File format must match export. Continue?"
+    "import_confirm": "Import will replace ALL existing data. File format must match export. Continue?",
+    "search": {
+      "placeholder": "Search records…",
+      "prev": "Previous",
+      "next": "Next",
+      "count": "{current} / {total}",
+      "no_results": "No matches"
+    }
   },
   "code_management": {
     "fields": {
@@ -299,7 +307,14 @@
     "save_confirm": "Save as a new entry? This will modify the database.",
     "update_confirm": "Update this record? This will modify the database.",
     "delete_confirm": "Delete this record? This cannot be undone.",
-    "import_confirm": "Import will replace ALL existing data. File format must match export. Continue?"
+    "import_confirm": "Import will replace ALL existing data. File format must match export. Continue?",
+    "search": {
+      "placeholder": "Search records…",
+      "prev": "Previous",
+      "next": "Next",
+      "count": "{current} / {total}",
+      "no_results": "No matches"
+    }
   },
   "application_material": {
     "modules": {

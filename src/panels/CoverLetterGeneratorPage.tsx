@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useSessionToken } from "../hooks/useSessionToken";
 import { open } from "@tauri-apps/plugin-dialog";
 
 type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
@@ -122,6 +123,7 @@ function toPatchPayload(entry: PromptPatchEntry) {
 
 export default function CoverLetterGeneratorPage(props: { t: TranslateFn; disabled?: boolean; onBack: () => void }) {
   const { t, disabled, onBack } = props;
+  const token = useSessionToken();
 
   const [jdRawText, setJdRawText] = useState("");
   const [hardRequirements, setHardRequirements] = useState<HardRequirements>({
@@ -292,7 +294,10 @@ export default function CoverLetterGeneratorPage(props: { t: TranslateFn; disabl
     const phase = nextState <= 1 ? "stage0_planning" : "iterative_generation";
     try {
       const payload = buildGeneratePayload(nextState);
-      const response = await invoke<CoverLetterGenerateResponse>("ai_generate_cover_letter", { request: payload });
+      const response = await invoke<CoverLetterGenerateResponse>("ai_generate_cover_letter", {
+        token,
+        request: payload,
+      });
       setGenerateState(nextState);
 
       response.feedbackMessages.forEach((msg) => addFeedback({ level: "info", text: msg }));
@@ -416,7 +421,10 @@ export default function CoverLetterGeneratorPage(props: { t: TranslateFn; disabl
         sessionHistory,
       };
 
-      const response = await invoke<PromptUpdateResponse>("ai_update_cover_letter_prompt", { request: payload });
+      const response = await invoke<PromptUpdateResponse>("ai_update_cover_letter_prompt", {
+        token,
+        request: payload,
+      });
       response.feedbackMessages.forEach((msg) => addFeedback({ level: "info", text: msg }));
 
       if (response.status !== "updated" || !response.updatedPromptMarkdown || !response.updatedPromptVersion) {

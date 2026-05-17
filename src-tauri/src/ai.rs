@@ -8,6 +8,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
+use crate::auth;
+use crate::paths::AppPaths;
+
 const OPENAI_MODEL: &str = "gpt-5.5";
 const FALLBACK_OPENAI_MODEL: &str = "gpt-5.4";
 const DEFAULT_REASONING_EFFORT: &str = "medium";
@@ -190,9 +193,13 @@ struct OpenAiTestModelOutput {
 }
 
 pub fn ensure_ai_config(app: &AppHandle) -> Result<(), String> {
-    let profile_path = openai_profile_path(app)?;
+    ensure_ai_config_paths(&AppPaths::from_tauri(app)?)
+}
+
+pub fn ensure_ai_config_paths(paths: &AppPaths) -> Result<(), String> {
+    let profile_path = paths.openai_profile();
     if !profile_path.exists() {
-        write_profile(app, &OpenAiProfile::default())?;
+        write_profile_paths(paths, &OpenAiProfile::default())?;
     }
     Ok(())
 }
@@ -210,15 +217,15 @@ fn openai_profile_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_config_dir(app)?.join("openai_profile.json"))
 }
 
-fn openai_api_key_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_config_dir(app)?.join("openai_api_key.secret"))
+fn read_profile(app: &AppHandle) -> Result<OpenAiProfile, String> {
+    read_profile_paths(&AppPaths::from_tauri(app)?)
 }
 
-fn read_profile(app: &AppHandle) -> Result<OpenAiProfile, String> {
-    let path = openai_profile_path(app)?;
+fn read_profile_paths(paths: &AppPaths) -> Result<OpenAiProfile, String> {
+    let path = paths.openai_profile();
     if !path.exists() {
         let profile = OpenAiProfile::default();
-        write_profile(app, &profile)?;
+        write_profile_paths(paths, &profile)?;
         return Ok(profile);
     }
     let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -231,12 +238,16 @@ fn read_profile(app: &AppHandle) -> Result<OpenAiProfile, String> {
 }
 
 fn write_profile(app: &AppHandle, profile: &OpenAiProfile) -> Result<(), String> {
+    write_profile_paths(&AppPaths::from_tauri(app)?, profile)
+}
+
+fn write_profile_paths(paths: &AppPaths, profile: &OpenAiProfile) -> Result<(), String> {
     let mut normalized = profile.clone();
     normalized.model = OPENAI_MODEL.to_string();
     normalized.reasoning_effort = normalize_reasoning_effort(&normalized.reasoning_effort)?;
     normalized.text_verbosity = normalize_text_verbosity(&normalized.text_verbosity)?;
     normalized.timeout_seconds = FIXED_TIMEOUT_SECONDS;
-    let path = openai_profile_path(app)?;
+    let path = paths.openai_profile();
     let text = serde_json::to_string_pretty(&normalized).map_err(|e| e.to_string())?;
     fs::write(path, text).map_err(|e| e.to_string())
 }
@@ -267,15 +278,29 @@ fn profile_view(profile: OpenAiProfile, has_api_key: bool) -> OpenAiProfileView 
     }
 }
 
-fn read_api_key(app: &AppHandle) -> Result<String, String> {
-    let path = openai_api_key_path(app)?;
-    let key =
-        fs::read_to_string(path).map_err(|_| "OpenAI API key is not configured".to_string())?;
-    let trimmed = key.trim().to_string();
-    if trimmed.is_empty() {
-        return Err("OpenAI API key is empty".to_string());
-    }
-    Ok(trimmed)
+fn read_api_key_for_token(app: &AppHandle, token: &str) -> Result<String, String> {
+    read_api_key_for_paths(&AppPaths::from_tauri(app)?, token)
+}
+
+fn read_api_key_for_paths(paths: &AppPaths, token: &str) -> Result<String, String> {
+    let user_id = auth::session_user_id(paths, token)?;
+    auth::read_user_openai_api_key(paths, user_id)
+}
+
+fn user_has_api_key_for_token(app: &AppHandle, token: &str) -> bool {
+    let Ok(paths) = AppPaths::from_tauri(app) else {
+        return false;
+    };
+    let Ok(user_id) = auth::session_user_id(&paths, token) else {
+        return false;
+    };
+    auth::user_has_openai_api_key(&paths, user_id)
+}
+
+fn save_api_key_for_token(app: &AppHandle, token: &str, api_key: &str) -> Result<(), String> {
+    let paths = AppPaths::from_tauri(app)?;
+    let user_id = auth::session_user_id(&paths, token)?;
+    auth::save_user_openai_api_key(&paths, user_id, api_key)
 }
 
 fn validate_api_key(api_key: &str) -> Result<String, String> {
@@ -287,24 +312,6 @@ fn validate_api_key(api_key: &str) -> Result<String, String> {
         return Err("OpenAI API key format is invalid (expected prefix: sk-)".to_string());
     }
     Ok(key.to_string())
-}
-
-fn write_api_key(app: &AppHandle, api_key: &str) -> Result<(), String> {
-    let path = openai_api_key_path(app)?;
-    fs::write(&path, api_key).map_err(|e| e.to_string())?;
-    set_secret_permissions(&path)?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_secret_permissions(path: &Path) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())
-}
-
-#[cfg(not(unix))]
-fn set_secret_permissions(_path: &Path) -> Result<(), String> {
-    Ok(())
 }
 
 fn parse_json_text(raw: &str) -> Result<Value, String> {
@@ -385,7 +392,8 @@ async fn post_openai_responses(
 }
 
 async fn call_openai_structured(
-    app: &AppHandle,
+    api_key: &str,
+    profile: &OpenAiProfile,
     system_instruction: &str,
     user_payload: Value,
     schema_name: &str,
@@ -394,8 +402,6 @@ async fn call_openai_structured(
     model_override: Option<&str>,
     reasoning_override: Option<&str>,
 ) -> Result<(Value, OpenAiProfile), String> {
-    let profile = read_profile(app)?;
-    let api_key = read_api_key(app)?;
     let request_model = model_override.unwrap_or(profile.model.as_str());
     let request_reasoning = reasoning_override.unwrap_or(profile.reasoning_effort.as_str());
     let mut body = json!({
@@ -428,19 +434,18 @@ async fn call_openai_structured(
 
     let response_json = post_openai_responses(&api_key, FIXED_TIMEOUT_SECONDS, &body).await?;
     let structured = extract_structured_output(&response_json)?;
-    Ok((structured, profile))
+    Ok((structured, profile.clone()))
 }
 
 async fn call_openai_text(
-    app: &AppHandle,
+    api_key: &str,
+    profile: &OpenAiProfile,
     system_instruction: &str,
     user_payload: Value,
     max_output_tokens: Option<u32>,
     model_override: Option<&str>,
     reasoning_override: Option<&str>,
 ) -> Result<(String, OpenAiProfile), String> {
-    let profile = read_profile(app)?;
-    let api_key = read_api_key(app)?;
     let request_model = model_override.unwrap_or(profile.model.as_str());
     let request_reasoning = reasoning_override.unwrap_or(profile.reasoning_effort.as_str());
     let mut body = json!({
@@ -469,7 +474,7 @@ async fn call_openai_text(
     if let Some(text) = response_json.get("output_text").and_then(Value::as_str) {
         let trimmed = text.trim();
         if !trimmed.is_empty() {
-            return Ok((trimmed.to_string(), profile));
+            return Ok((trimmed.to_string(), profile.clone()));
         }
     }
 
@@ -480,7 +485,7 @@ async fn call_openai_text(
                     if let Some(text) = part.get("text").and_then(Value::as_str) {
                         let trimmed = text.trim();
                         if !trimmed.is_empty() {
-                            return Ok((trimmed.to_string(), profile));
+                            return Ok((trimmed.to_string(), profile.clone()));
                         }
                     }
                 }
@@ -489,6 +494,148 @@ async fn call_openai_text(
     }
 
     Err("OpenAI returned no text output".to_string())
+}
+
+async fn run_openai_api_key_test(
+    api_key: &str,
+    profile: &OpenAiProfile,
+) -> Result<OpenAiTestResult, String> {
+    let payload = json!({
+      "task": "api_key_connectivity_test",
+      "requirement": "Return one concise first-person self-introduction sentence with model name/version and active runtime parameters.",
+      "expected_fields": ["model", "version", "reasoning_effort", "text_verbosity", "timeout_seconds"],
+      "configured_profile": {
+        "model": profile.model,
+        "reasoning_effort": profile.reasoning_effort,
+        "text_verbosity": profile.text_verbosity,
+        "timeout_seconds": profile.timeout_seconds
+      },
+      "example": "I am GPT-5.5, running with reasoning=low, verbosity=medium, timeout=90s."
+    });
+    let mut errors: Vec<String> = Vec::new();
+
+    for _attempt in 0..2 {
+        match call_openai_structured(
+            api_key,
+            profile,
+            "You are a diagnostic assistant. Return JSON only in this exact shape: {\"intro\":\"...\"}. The intro must be one short first-person self-introduction sentence and MUST mention model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
+            payload.clone(),
+            "openai_api_key_test",
+            openai_test_response_schema(),
+            Some(80),
+            None,
+            Some("low"),
+        )
+        .await
+        {
+            Ok((structured, profile)) => {
+                let parsed: OpenAiTestModelOutput =
+                    serde_json::from_value(structured).map_err(|e| e.to_string())?;
+                return Ok(OpenAiTestResult {
+                    ok: true,
+                    intro: parsed.intro,
+                    model: profile.model,
+                    reasoning_effort: "low".to_string(),
+                    text_verbosity: profile.text_verbosity,
+                    timeout_seconds: profile.timeout_seconds,
+                });
+            }
+            Err(e) => errors.push(e),
+        }
+
+        match call_openai_structured(
+            api_key,
+            profile,
+            "You are a diagnostic assistant. Return JSON only in this exact shape: {\"intro\":\"...\"}. The intro must be one short first-person self-introduction sentence and MUST mention model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
+            payload.clone(),
+            "openai_api_key_test",
+            openai_test_response_schema(),
+            Some(80),
+            Some(FALLBACK_OPENAI_MODEL),
+            Some("low"),
+        )
+        .await
+        {
+            Ok((structured, profile)) => {
+                let parsed: OpenAiTestModelOutput =
+                    serde_json::from_value(structured).map_err(|e| e.to_string())?;
+                return Ok(OpenAiTestResult {
+                    ok: true,
+                    intro: parsed.intro,
+                    model: profile.model,
+                    reasoning_effort: "low".to_string(),
+                    text_verbosity: profile.text_verbosity,
+                    timeout_seconds: profile.timeout_seconds,
+                });
+            }
+            Err(e) => errors.push(e),
+        }
+
+        match call_openai_text(
+            api_key,
+            profile,
+            "You are a diagnostic assistant. Return one short first-person self-introduction sentence and include model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
+            payload.clone(),
+            Some(80),
+            None,
+            Some("low"),
+        )
+        .await
+        {
+            Ok((intro_text, profile)) => {
+                return Ok(OpenAiTestResult {
+                    ok: true,
+                    intro: intro_text,
+                    model: profile.model,
+                    reasoning_effort: "low".to_string(),
+                    text_verbosity: profile.text_verbosity,
+                    timeout_seconds: profile.timeout_seconds,
+                });
+            }
+            Err(e) => errors.push(e),
+        }
+
+        match call_openai_text(
+            api_key,
+            profile,
+            "You are a diagnostic assistant. Return one short first-person self-introduction sentence and include model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
+            payload.clone(),
+            Some(80),
+            Some(FALLBACK_OPENAI_MODEL),
+            Some("low"),
+        )
+        .await
+        {
+            Ok((intro_text, profile)) => {
+                return Ok(OpenAiTestResult {
+                    ok: true,
+                    intro: intro_text,
+                    model: profile.model,
+                    reasoning_effort: "low".to_string(),
+                    text_verbosity: profile.text_verbosity,
+                    timeout_seconds: profile.timeout_seconds,
+                });
+            }
+            Err(e) => errors.push(e),
+        }
+    }
+
+    Err(
+        errors
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "API test failed with unknown error".to_string()),
+    )
+}
+
+pub async fn ai_test_openai_api_key_paths(
+    paths: &AppPaths,
+    token: &str,
+) -> Result<OpenAiTestResult, String> {
+    ensure_ai_config_paths(paths)?;
+    let api_key = read_api_key_for_paths(paths, token)?;
+    let profile = read_profile_paths(paths)?;
+    run_openai_api_key_test(&api_key, &profile).await
 }
 
 fn cover_letter_response_schema() -> Value {
@@ -644,21 +791,22 @@ fn open_folder_path(path: &Path) -> Result<(), String> {
     Err("Opening folder is not supported on this platform".to_string())
 }
 #[tauri::command]
-pub fn ai_get_openai_profile(app: AppHandle) -> Result<OpenAiProfileView, String> {
+pub fn ai_get_openai_profile(app: AppHandle, token: String) -> Result<OpenAiProfileView, String> {
     ensure_ai_config(&app)?;
     let profile = read_profile(&app)?;
-    let has_api_key = read_api_key(&app).is_ok();
+    let has_api_key = user_has_api_key_for_token(&app, &token);
     Ok(profile_view(profile, has_api_key))
 }
 
 #[tauri::command]
 pub fn ai_save_openai_api_key(
     app: AppHandle,
+    token: String,
     api_key: String,
 ) -> Result<OpenAiProfileView, String> {
     ensure_ai_config(&app)?;
     let normalized = validate_api_key(&api_key)?;
-    write_api_key(&app, &normalized)?;
+    save_api_key_for_token(&app, &token, &normalized)?;
     let profile = read_profile(&app)?;
     Ok(profile_view(profile, true))
 }
@@ -666,6 +814,7 @@ pub fn ai_save_openai_api_key(
 #[tauri::command]
 pub fn ai_update_openai_profile(
     app: AppHandle,
+    token: String,
     reasoning_effort: Option<String>,
     text_verbosity: Option<String>,
 ) -> Result<OpenAiProfileView, String> {
@@ -679,148 +828,27 @@ pub fn ai_update_openai_profile(
     }
     profile.timeout_seconds = FIXED_TIMEOUT_SECONDS;
     write_profile(&app, &profile)?;
-    let has_api_key = read_api_key(&app).is_ok();
+    let has_api_key = user_has_api_key_for_token(&app, &token);
     Ok(profile_view(profile, has_api_key))
 }
 
 #[tauri::command]
-pub async fn ai_test_openai_api_key(app: AppHandle) -> Result<OpenAiTestResult, String> {
-    ensure_ai_config(&app)?;
-    let profile = read_profile(&app)?;
-    let payload = json!({
-      "task": "api_key_connectivity_test",
-      "requirement": "Return one concise first-person self-introduction sentence with model name/version and active runtime parameters.",
-      "expected_fields": ["model", "version", "reasoning_effort", "text_verbosity", "timeout_seconds"],
-      "configured_profile": {
-        "model": profile.model,
-        "reasoning_effort": profile.reasoning_effort,
-        "text_verbosity": profile.text_verbosity,
-        "timeout_seconds": profile.timeout_seconds
-      },
-      "example": "I am GPT-5.5, running with reasoning=low, verbosity=medium, timeout=90s."
-    });
-    let mut errors: Vec<String> = Vec::new();
-
-    for _attempt in 0..2 {
-        // 1) primary model structured (force low reasoning for test stability)
-        match call_openai_structured(
-            &app,
-            "You are a diagnostic assistant. Return JSON only in this exact shape: {\"intro\":\"...\"}. The intro must be one short first-person self-introduction sentence and MUST mention model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
-            payload.clone(),
-            "openai_api_key_test",
-            openai_test_response_schema(),
-            Some(80),
-            None,
-            Some("low"),
-        )
-        .await
-        {
-            Ok((structured, profile)) => {
-                let parsed: OpenAiTestModelOutput =
-                    serde_json::from_value(structured).map_err(|e| e.to_string())?;
-                return Ok(OpenAiTestResult {
-                    ok: true,
-                    intro: parsed.intro,
-                    model: profile.model,
-                    reasoning_effort: "low".to_string(),
-                    text_verbosity: profile.text_verbosity,
-                    timeout_seconds: profile.timeout_seconds,
-                });
-            }
-            Err(e) => errors.push(e),
-        }
-
-        // 2) fallback model structured
-        match call_openai_structured(
-            &app,
-            "You are a diagnostic assistant. Return JSON only in this exact shape: {\"intro\":\"...\"}. The intro must be one short first-person self-introduction sentence and MUST mention model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
-            payload.clone(),
-            "openai_api_key_test",
-            openai_test_response_schema(),
-            Some(80),
-            Some(FALLBACK_OPENAI_MODEL),
-            Some("low"),
-        )
-        .await
-        {
-            Ok((structured, profile)) => {
-                let parsed: OpenAiTestModelOutput =
-                    serde_json::from_value(structured).map_err(|e| e.to_string())?;
-                return Ok(OpenAiTestResult {
-                    ok: true,
-                    intro: parsed.intro,
-                    model: profile.model,
-                    reasoning_effort: "low".to_string(),
-                    text_verbosity: profile.text_verbosity,
-                    timeout_seconds: profile.timeout_seconds,
-                });
-            }
-            Err(e) => errors.push(e),
-        }
-
-        // 3) primary model plain text
-        match call_openai_text(
-            &app,
-            "You are a diagnostic assistant. Return one short first-person self-introduction sentence and include model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
-            payload.clone(),
-            Some(80),
-            None,
-            Some("low"),
-        )
-        .await
-        {
-            Ok((intro_text, profile)) => {
-                return Ok(OpenAiTestResult {
-                    ok: true,
-                    intro: intro_text,
-                    model: profile.model,
-                    reasoning_effort: "low".to_string(),
-                    text_verbosity: profile.text_verbosity,
-                    timeout_seconds: profile.timeout_seconds,
-                });
-            }
-            Err(e) => errors.push(e),
-        }
-
-        // 4) fallback model plain text
-        match call_openai_text(
-            &app,
-            "You are a diagnostic assistant. Return one short first-person self-introduction sentence and include model name/version plus active runtime parameters (reasoning_effort, text_verbosity, timeout_seconds).",
-            payload.clone(),
-            Some(80),
-            Some(FALLBACK_OPENAI_MODEL),
-            Some("low"),
-        )
-        .await
-        {
-            Ok((intro_text, profile)) => {
-                return Ok(OpenAiTestResult {
-                    ok: true,
-                    intro: intro_text,
-                    model: profile.model,
-                    reasoning_effort: "low".to_string(),
-                    text_verbosity: profile.text_verbosity,
-                    timeout_seconds: profile.timeout_seconds,
-                });
-            }
-            Err(e) => errors.push(e),
-        }
-    }
-
-    Err(
-        errors
-            .last()
-            .cloned()
-            .unwrap_or_else(|| "API test failed with unknown error".to_string()),
-    )
+pub async fn ai_test_openai_api_key(
+    app: AppHandle,
+    token: String,
+) -> Result<OpenAiTestResult, String> {
+    ai_test_openai_api_key_paths(&AppPaths::from_tauri(&app)?, &token).await
 }
 
 #[tauri::command]
 pub async fn ai_generate_cover_letter(
     app: AppHandle,
+    token: String,
     request: CoverLetterGenerateRequest,
 ) -> Result<CoverLetterGenerateResponse, String> {
     ensure_ai_config(&app)?;
+    let api_key = read_api_key_for_token(&app, &token)?;
+    let profile = read_profile(&app)?;
     ensure_non_empty(&request.session_id, "sessionId")?;
     ensure_non_empty(&request.position_key, "positionKey")?;
     ensure_non_empty(&request.jd_raw_text, "jdRawText")?;
@@ -849,7 +877,8 @@ pub async fn ai_generate_cover_letter(
     });
 
     let (structured, profile) = call_openai_structured(
-        &app,
+        &api_key,
+        &profile,
         COVER_LETTER_GENERATION_SYSTEM_PROMPT,
         payload,
         "cover_letter_generation",
@@ -905,9 +934,12 @@ pub fn ai_open_folder(path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn ai_update_cover_letter_prompt(
     app: AppHandle,
+    token: String,
     request: PromptUpdateRequest,
 ) -> Result<PromptUpdateResponse, String> {
     ensure_ai_config(&app)?;
+    let api_key = read_api_key_for_token(&app, &token)?;
+    let profile = read_profile(&app)?;
     ensure_non_empty(&request.session_id, "sessionId")?;
     ensure_non_empty(&request.previous_prompt_version, "previousPromptVersion")?;
     ensure_non_empty(&request.previous_prompt_path, "previousPromptPath")?;
@@ -928,7 +960,8 @@ pub async fn ai_update_cover_letter_prompt(
     });
 
     let (structured, profile) = call_openai_structured(
-        &app,
+        &api_key,
+        &profile,
         PROMPT_UPDATE_SYSTEM_PROMPT,
         payload,
         "cover_letter_prompt_update",

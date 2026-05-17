@@ -203,3 +203,47 @@
   width: auto;
   min-width: 120px;
 }
+
+/* ---------- Confirm modal (User Management) ---------- */
+.calc__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.calc__modal {
+  width: min(520px, 100%);
+  max-height: min(80dvh, 640px);
+  overflow: auto;
+  background: var(--c-panel-bg);
+  color: var(--c-panel-fg);
+  border: var(--b-1) solid var(--c-panel-border);
+  border-radius: var(--r-card);
+  box-shadow: var(--sh-3);
+}
+
+.calc__modal-head {
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: var(--b-1) solid var(--c-panel-border);
+}
+
+.calc__modal-title {
+  margin: 0;
+  font-size: var(--fs-panel);
+  font-weight: 700;
+}
+
+.calc__modal-body {
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+}
+
+.calc__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}

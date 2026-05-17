@@ -56,13 +56,17 @@ pub fn read_users_csv(abs_path: &str) -> Result<Vec<UserRow>, String> {
   parse_users_csv_text(&text)
 }
 
-pub fn write_users_csv(abs_path: &str, rows: &[UserRow]) -> Result<(), String> {
+pub fn format_users_csv(rows: &[UserRow]) -> String {
   let mut out = String::from("role,id,username\n");
   for r in rows {
     // NOTE: minimal CSV; usernames/roles must not contain commas.
     out.push_str(&format!("{},{},{}\n", r.role, r.id, r.username));
   }
-  fs::write(abs_path, out).map_err(|e| format!("Write CSV failed: {e}"))?;
+  out
+}
+
+pub fn write_users_csv(abs_path: &str, rows: &[UserRow]) -> Result<(), String> {
+  fs::write(abs_path, format_users_csv(rows)).map_err(|e| format!("Write CSV failed: {e}"))?;
   Ok(())
 }
 

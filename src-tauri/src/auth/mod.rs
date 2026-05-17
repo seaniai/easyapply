@@ -6,8 +6,11 @@
 
 use std::{fs, path::PathBuf};
 use rusqlite::{params, Connection, OptionalExtension};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use uuid::Uuid;
+
+use crate::paths::AppPaths;
+use crate::secrets;
 
 mod csv;
 
@@ -25,18 +28,15 @@ pub const PERM_AUTH_MANAGE: &str = "auth.manage";
 const DEFAULT_NEW_USER_PASSWORD: &str = "88888888";
 
 pub fn auth_db_path(app: &AppHandle) -> Result<PathBuf, String> {
-  let dir = app
-    .path()
-    .app_data_dir()
-    .map_err(|e: tauri::Error| e.to_string())?;
-
-  fs::create_dir_all(&dir).map_err(|e: std::io::Error| e.to_string())?;
-  Ok(dir.join("auth.db"))
+  Ok(AppPaths::from_tauri(app)?.auth_db())
 }
 
 pub fn ensure_auth_db(app: &AppHandle) -> Result<(), String> {
-  let db_path = auth_db_path(app)?;
-  let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+  ensure_auth_db_paths(&AppPaths::from_tauri(app)?)
+}
+
+pub fn ensure_auth_db_paths(paths: &AppPaths) -> Result<(), String> {
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
 
   // Base schema (newest layout).
   conn
@@ -112,6 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts_ms);
 
   // If an older schema exists (role_permissions has permission_key), migrate it to permissions + role_permissions(permission_id).
   migrate_role_permissions_if_needed(&conn)?;
+  migrate_user_openai_columns(&conn)?;
 
   // Seed roles (idempotent).
   conn
@@ -181,6 +182,23 @@ fn seed_role_permissions(conn: &Connection) -> Result<(), String> {
       .map_err(|e| e.to_string())?;
   }
 
+  Ok(())
+}
+
+fn migrate_user_openai_columns(conn: &Connection) -> Result<(), String> {
+  if !table_has_column(conn, "users", "openai_api_key_encrypted")? {
+    conn
+      .execute("ALTER TABLE users ADD COLUMN openai_api_key_encrypted TEXT", [])
+      .map_err(|e| e.to_string())?;
+  }
+  if !table_has_column(conn, "users", "openai_api_key_updated_at_ms")? {
+    conn
+      .execute(
+        "ALTER TABLE users ADD COLUMN openai_api_key_updated_at_ms INTEGER",
+        [],
+      )
+      .map_err(|e| e.to_string())?;
+  }
   Ok(())
 }
 
@@ -376,8 +394,16 @@ pub struct AuthSession {
 }
 
 pub fn auth_login(app: &AppHandle, username: &str, password: &str, remember_me: bool) -> Result<AuthSession, String> {
-  let db_path = auth_db_path(app)?;
-  let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+  auth_login_paths(&AppPaths::from_tauri(app)?, username, password, remember_me)
+}
+
+pub fn auth_login_paths(
+  paths: &AppPaths,
+  username: &str,
+  password: &str,
+  remember_me: bool,
+) -> Result<AuthSession, String> {
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
 
   let (user_id, stored_pw, is_active): (i64, String, i64) = conn
     .query_row(
@@ -418,8 +444,11 @@ pub fn auth_login(app: &AppHandle, username: &str, password: &str, remember_me: 
 }
 
 pub fn auth_resume(app: &AppHandle, token: &str) -> Result<AuthSession, String> {
-  let db_path = auth_db_path(app)?;
-  let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+  auth_resume_paths(&AppPaths::from_tauri(app)?, token)
+}
+
+pub fn auth_resume_paths(paths: &AppPaths, token: &str) -> Result<AuthSession, String> {
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
 
   let (user_id, revoked, expires_at_ms): (i64, i64, Option<i64>) = conn
     .query_row(
@@ -443,8 +472,11 @@ pub fn auth_resume(app: &AppHandle, token: &str) -> Result<AuthSession, String> 
 }
 
 pub fn auth_logout(app: &AppHandle, token: &str) -> Result<(), String> {
-  let db_path = auth_db_path(app)?;
-  let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+  auth_logout_paths(&AppPaths::from_tauri(app)?, token)
+}
+
+pub fn auth_logout_paths(paths: &AppPaths, token: &str) -> Result<(), String> {
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
   conn
     .execute("UPDATE sessions SET revoked = 1 WHERE token = ?", params![token])
     .map_err(|e| e.to_string())?;
@@ -462,8 +494,16 @@ pub fn auth_change_password(
   old_password: &str,
   new_password: &str,
 ) -> Result<(), String> {
-  let db_path = auth_db_path(app)?;
-  let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+  auth_change_password_paths(&AppPaths::from_tauri(app)?, token, old_password, new_password)
+}
+
+pub fn auth_change_password_paths(
+  paths: &AppPaths,
+  token: &str,
+  old_password: &str,
+  new_password: &str,
+) -> Result<(), String> {
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
 
   let oldp = old_password;
   let newp = new_password.trim();
@@ -571,6 +611,77 @@ WHERE ur.user_id = ?
   Ok(AuthUserInfo { user_id, username, roles, permissions })
 }
 
+/// Validate session token and return owning user id (for server-side authorization).
+pub fn session_user_id(paths: &AppPaths, token: &str) -> Result<i64, String> {
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
+  let (user_id, revoked, expires_at_ms): (i64, i64, Option<i64>) = conn
+    .query_row(
+      "SELECT user_id, revoked, expires_at_ms FROM sessions WHERE token = ?",
+      params![token],
+      |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .map_err(|_| "Invalid session".to_string())?;
+  if revoked != 0 {
+    return Err("Session revoked".to_string());
+  }
+  if let Some(exp) = expires_at_ms {
+    if now_ms() > exp {
+      return Err("Session expired".to_string());
+    }
+  }
+  Ok(user_id)
+}
+
+pub fn user_has_openai_api_key(paths: &AppPaths, user_id: i64) -> bool {
+  let Ok(conn) = Connection::open(paths.auth_db()) else {
+    return false;
+  };
+  let count: i64 = conn
+    .query_row(
+      "SELECT COUNT(1) FROM users WHERE id = ? AND openai_api_key_encrypted IS NOT NULL AND trim(openai_api_key_encrypted) <> ''",
+      params![user_id],
+      |r| r.get(0),
+    )
+    .unwrap_or(0);
+  count > 0
+}
+
+pub fn save_user_openai_api_key(paths: &AppPaths, user_id: i64, api_key: &str) -> Result<(), String> {
+  let key = api_key.trim();
+  if key.is_empty() {
+    return Err("OpenAI API key is required".to_string());
+  }
+  if !key.starts_with("sk-") {
+    return Err("OpenAI API key format is invalid (expected prefix: sk-)".to_string());
+  }
+  let enc = secrets::encrypt_secret(key)?;
+  let now = now_ms();
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
+  conn
+    .execute(
+      "UPDATE users SET openai_api_key_encrypted = ?, openai_api_key_updated_at_ms = ? WHERE id = ?",
+      params![enc, now, user_id],
+    )
+    .map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+pub fn read_user_openai_api_key(paths: &AppPaths, user_id: i64) -> Result<String, String> {
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
+  let enc: Option<String> = conn
+    .query_row(
+      "SELECT openai_api_key_encrypted FROM users WHERE id = ?",
+      params![user_id],
+      |r| r.get(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())?;
+  let Some(enc) = enc.filter(|s| !s.trim().is_empty()) else {
+    return Err("OpenAI API key is not configured".to_string());
+  };
+  secrets::decrypt_secret(&enc)
+}
+
 // ==============================
 // User Management Commands
 // ==============================
@@ -589,23 +700,7 @@ fn list_db_roles(conn: &Connection) -> Result<Vec<String>, String> {
   Ok(out)
 }
 
-// Export CSV (role,id,username) into folderPath, return saved file path.
-// Contract: one user id should map to exactly one role; if multiple, return error.
-#[tauri::command]
-pub fn auth_export_users_csv(app: AppHandle, folder_path: String) -> Result<String, String> {
-  ensure_auth_db(&app)?;
-
-  let db_path = auth_db_path(&app)?;
-  let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-
-  let folder = folder_path.trim();
-  if folder.is_empty() {
-    return Err("folderPath is required.".to_string());
-  }
-  let dir = PathBuf::from(folder);
-  fs::create_dir_all(&dir).map_err(|e| format!("Create folder failed: {e}"))?;
-
-  // Detect users with multiple roles (violates invariant)
+fn load_export_user_rows(conn: &Connection) -> Result<Vec<csv::UserRow>, String> {
   let multi_cnt: i64 = conn
     .query_row(
       r#"
@@ -627,7 +722,6 @@ SELECT COUNT(1) FROM (
     ));
   }
 
-  // Export: users that have a role; if a user has no role row, treat role as empty (still export).
   let mut stmt = conn
     .prepare(
       r#"
@@ -657,11 +751,35 @@ ORDER BY u.id ASC
   for x in it {
     rows.push(x.map_err(|e| e.to_string())?);
   }
+  Ok(rows)
+}
 
+pub fn auth_list_users_for_export_paths(paths: &AppPaths) -> Result<Vec<csv::UserRow>, String> {
+  ensure_auth_db_paths(paths)?;
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
+  load_export_user_rows(&conn)
+}
+
+pub fn auth_export_users_csv_text_paths(paths: &AppPaths) -> Result<String, String> {
+  let rows = auth_list_users_for_export_paths(paths)?;
+  Ok(csv::format_users_csv(&rows))
+}
+
+// Export CSV (role,id,username) into folderPath, return saved file path.
+#[tauri::command]
+pub fn auth_export_users_csv(app: AppHandle, folder_path: String) -> Result<String, String> {
+  let paths = AppPaths::from_tauri(&app)?;
+  let folder = folder_path.trim();
+  if folder.is_empty() {
+    return Err("folderPath is required.".to_string());
+  }
+  let dir = PathBuf::from(folder);
+  fs::create_dir_all(&dir).map_err(|e| format!("Create folder failed: {e}"))?;
+
+  let rows = auth_list_users_for_export_paths(&paths)?;
   let ts = now_ms();
   let file_name = format!("auth_users_{ts}.csv");
   let abs_path = dir.join(file_name);
-
   csv::write_users_csv(abs_path.to_string_lossy().as_ref(), &rows)?;
   Ok(abs_path.to_string_lossy().to_string())
 }
@@ -670,9 +788,12 @@ ORDER BY u.id ASC
 // - If user exists: reassign to exactly one role.
 // - If user doesn't exist: create with default password "88888888" and bind role.
 // - Delete requires existing user (else error).
-#[tauri::command]
-pub fn auth_upsert_user_role(app: AppHandle, username: String, role: String) -> Result<(), String> {
-  ensure_auth_db(&app)?;
+pub fn auth_upsert_user_role_paths(
+  paths: &AppPaths,
+  username: &str,
+  role: &str,
+) -> Result<(), String> {
+  ensure_auth_db_paths(paths)?;
 
   let u = username.trim();
   if u.is_empty() {
@@ -680,8 +801,7 @@ pub fn auth_upsert_user_role(app: AppHandle, username: String, role: String) -> 
   }
 
   let r_norm = role.trim().to_lowercase();
-  let db_path = auth_db_path(&app)?;
-  let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
 
   let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
@@ -739,6 +859,16 @@ pub fn auth_upsert_user_role(app: AppHandle, username: String, role: String) -> 
   Ok(())
 }
 
+#[tauri::command]
+pub fn auth_upsert_user_role(app: AppHandle, username: String, role: String) -> Result<(), String> {
+  auth_upsert_user_role_paths(&AppPaths::from_tauri(&app)?, &username, &role)
+}
+
+pub fn user_can_manage_auth(user: &AuthUserInfo) -> bool {
+  user.roles.iter().any(|r| r == ROLE_ADMIN)
+    || user.permissions.iter().any(|p| p == PERM_AUTH_MANAGE)
+}
+
 // Bulk apply from CSV file path.
 // - dryRun=true  => return ValidationReport
 // - dryRun=false => apply transaction + return ApplyResult
@@ -752,22 +882,20 @@ pub fn auth_upsert_user_role(app: AppHandle, username: String, role: String) -> 
 // - if id exists in DB: username must match DB username exactly
 // - if username exists in DB but with different id => error
 // - delete requires id exists
-#[tauri::command]
-pub fn auth_bulk_apply_csv(app: AppHandle, abs_path: String, dry_run: bool) -> Result<serde_json::Value, String> {
-  ensure_auth_db(&app)?;
-
-  let path = abs_path.trim();
-  if path.is_empty() {
-    return Err("absPath is required.".to_string());
+pub fn auth_bulk_apply_csv_paths(
+  paths: &AppPaths,
+  csv_text: &str,
+  dry_run: bool,
+) -> Result<serde_json::Value, String> {
+  ensure_auth_db_paths(paths)?;
+  let text = csv_text.trim();
+  if text.is_empty() {
+    return Err("CSV content is required.".to_string());
   }
 
-  let db_path = auth_db_path(&app)?;
-  let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+  let conn = Connection::open(paths.auth_db()).map_err(|e| e.to_string())?;
+  let rows = csv::parse_users_csv_text(text)?;
 
-  // Load CSV rows
-  let rows = csv::read_users_csv(path)?;
-
-  // Read DB mappings for validation
   let (id_to_username, username_to_id) = load_user_maps(&conn)?;
   let roles = list_db_roles(&conn)?;
 
@@ -783,7 +911,6 @@ pub fn auth_bulk_apply_csv(app: AppHandle, abs_path: String, dry_run: bool) -> R
 
   let plan = v.plan.ok_or_else(|| "Internal error: validation ok but plan missing.".to_string())?;
 
-  // Apply in a single transaction
   let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
   let mut inserted: u64 = 0;
@@ -850,6 +977,16 @@ pub fn auth_bulk_apply_csv(app: AppHandle, abs_path: String, dry_run: bool) -> R
   };
 
   Ok(serde_json::to_value(&res).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+pub fn auth_bulk_apply_csv(app: AppHandle, abs_path: String, dry_run: bool) -> Result<serde_json::Value, String> {
+  let path = abs_path.trim();
+  if path.is_empty() {
+    return Err("absPath is required.".to_string());
+  }
+  let csv_text = fs::read_to_string(path).map_err(|e| format!("Read CSV failed: {e}"))?;
+  auth_bulk_apply_csv_paths(&AppPaths::from_tauri(&app)?, &csv_text, dry_run)
 }
 
 fn load_user_maps(conn: &Connection) -> Result<(std::collections::HashMap<i64, String>, std::collections::HashMap<String, i64>), String> {

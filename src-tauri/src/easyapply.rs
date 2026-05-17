@@ -12,6 +12,52 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
+use crate::auth;
+use crate::paths::AppPaths;
+
+fn column_exists(conn: &rusqlite::Connection, table: &str, column: &str) -> bool {
+  let sql = format!("PRAGMA table_info({table})");
+  let Ok(mut stmt) = conn.prepare(&sql) else {
+    return false;
+  };
+  let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(1)) else {
+    return false;
+  };
+  let names: Vec<String> = rows.filter_map(|r| r.ok()).collect();
+  names.iter().any(|name| name == column)
+}
+
+fn migrate_user_scope(conn: &rusqlite::Connection) -> Result<(), String> {
+  for table in ["applied", "code"] {
+    if !column_exists(conn, table, "user_id") {
+      conn
+        .execute(
+          &format!("ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1"),
+          [],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    conn
+      .execute(
+        &format!("CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_id)"),
+        [],
+      )
+      .map_err(|e| e.to_string())?;
+  }
+  Ok(())
+}
+
+fn user_id_from_token(paths: &AppPaths, token: &str) -> Result<i64, String> {
+  auth::session_user_id(paths, token)
+}
+
+fn guard_row_changed(changes: usize) -> Result<(), String> {
+  if changes == 0 {
+    return Err("Record not found or access denied".to_string());
+  }
+  Ok(())
+}
+
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
   let dir = app.path().app_data_dir().map_err(|e: tauri::Error| e.to_string())?;
   fs::create_dir_all(&dir).map_err(|e: std::io::Error| e.to_string())?;
@@ -64,8 +110,11 @@ fn write_easyapply_config(app: &AppHandle, cfg: &EasyapplyConfig) -> Result<(), 
 
 // ---- DB schema ----
 pub fn ensure_easyapply_db(app: &AppHandle) -> Result<(), String> {
-  let db_path = easyapply_db_path(app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+  ensure_easyapply_db_paths(&AppPaths::from_tauri(app)?)
+}
+
+pub fn ensure_easyapply_db_paths(paths: &AppPaths) -> Result<(), String> {
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
 
   conn
     .execute_batch(
@@ -75,6 +124,7 @@ PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS applied (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
   company    TEXT NOT NULL DEFAULT '',
   role       TEXT NOT NULL DEFAULT '',
   via        TEXT NOT NULL DEFAULT '',
@@ -85,6 +135,7 @@ CREATE TABLE IF NOT EXISTS applied (
 
 CREATE TABLE IF NOT EXISTS code (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
   account    TEXT NOT NULL DEFAULT '',
   username   TEXT NOT NULL DEFAULT '',
   password   TEXT NOT NULL DEFAULT '',
@@ -95,6 +146,9 @@ CREATE TABLE IF NOT EXISTS code (
 "#,
     )
     .map_err(|e| e.to_string())?;
+
+  // Add user_id + indexes for legacy DBs; create indexes for new installs.
+  migrate_user_scope(&conn)?;
 
   Ok(())
 }
@@ -112,15 +166,22 @@ pub struct AppliedRow {
 }
 
 #[tauri::command]
-pub fn applied_list(app: AppHandle) -> Result<Vec<AppliedRow>, String> {
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+pub fn applied_list(app: AppHandle, token: String) -> Result<Vec<AppliedRow>, String> {
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  applied_list_paths(&paths, user_id)
+}
+
+pub fn applied_list_paths(paths: &AppPaths, user_id: i64) -> Result<Vec<AppliedRow>, String> {
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
 
   let mut stmt = conn
-    .prepare("SELECT id, company, role, via, date, status, comments FROM applied ORDER BY id")
+    .prepare(
+      "SELECT id, company, role, via, date, status, comments FROM applied WHERE user_id = ?1 ORDER BY id",
+    )
     .map_err(|e| e.to_string())?;
   let rows = stmt
-    .query_map([], |r| {
+    .query_map(params![user_id], |r| {
       Ok(AppliedRow {
         id: r.get(0)?,
         company: r.get(1)?,
@@ -143,6 +204,7 @@ pub fn applied_list(app: AppHandle) -> Result<Vec<AppliedRow>, String> {
 #[tauri::command]
 pub fn applied_create(
   app: AppHandle,
+  token: String,
   company: String,
   role: String,
   via: String,
@@ -150,12 +212,35 @@ pub fn applied_create(
   status: String,
   comments: String,
 ) -> Result<i64, String> {
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  applied_create_paths(
+    &paths,
+    user_id,
+    company,
+    role,
+    via,
+    date,
+    status,
+    comments,
+  )
+}
+
+pub fn applied_create_paths(
+  paths: &AppPaths,
+  user_id: i64,
+  company: String,
+  role: String,
+  via: String,
+  date: String,
+  status: String,
+  comments: String,
+) -> Result<i64, String> {
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
   conn
     .execute(
-      "INSERT INTO applied (company, role, via, date, status, comments) VALUES (?1,?2,?3,?4,?5,?6)",
-      params![company, role, via, date, status, comments],
+      "INSERT INTO applied (user_id, company, role, via, date, status, comments) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+      params![user_id, company, role, via, date, status, comments],
     )
     .map_err(|e| e.to_string())?;
   Ok(conn.last_insert_rowid())
@@ -164,6 +249,7 @@ pub fn applied_create(
 #[tauri::command]
 pub fn applied_update(
   app: AppHandle,
+  token: String,
   id: i64,
   company: String,
   role: String,
@@ -172,33 +258,65 @@ pub fn applied_update(
   status: String,
   comments: String,
 ) -> Result<(), String> {
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
-  conn
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  applied_update_paths(
+    &paths,
+    user_id,
+    id,
+    company,
+    role,
+    via,
+    date,
+    status,
+    comments,
+  )
+}
+
+pub fn applied_update_paths(
+  paths: &AppPaths,
+  user_id: i64,
+  id: i64,
+  company: String,
+  role: String,
+  via: String,
+  date: String,
+  status: String,
+  comments: String,
+) -> Result<(), String> {
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
+  let n = conn
     .execute(
-      "UPDATE applied SET company=?1, role=?2, via=?3, date=?4, status=?5, comments=?6 WHERE id=?7",
-      params![company, role, via, date, status, comments, id],
+      "UPDATE applied SET company=?1, role=?2, via=?3, date=?4, status=?5, comments=?6 WHERE id=?7 AND user_id=?8",
+      params![company, role, via, date, status, comments, id, user_id],
     )
     .map_err(|e| e.to_string())?;
-  Ok(())
+  guard_row_changed(n)
 }
 
 #[tauri::command]
-pub fn applied_delete(app: AppHandle, id: i64) -> Result<(), String> {
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
-  conn
-    .execute("DELETE FROM applied WHERE id=?1", params![id])
+pub fn applied_delete(app: AppHandle, token: String, id: i64) -> Result<(), String> {
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  applied_delete_paths(&paths, user_id, id)
+}
+
+pub fn applied_delete_paths(paths: &AppPaths, user_id: i64, id: i64) -> Result<(), String> {
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
+  let n = conn
+    .execute("DELETE FROM applied WHERE id=?1 AND user_id=?2", params![id, user_id])
     .map_err(|e| e.to_string())?;
-  Ok(())
+  guard_row_changed(n)
 }
 
 /// UTF-8 BOM for Excel "CSV UTF-8 (Comma delimited)"
 const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
 
 #[tauri::command]
-pub fn applied_export_csv(app: AppHandle, dir: String) -> Result<String, String> {
-  let rows = applied_list(app.clone())?;
+pub fn applied_export_csv(app: AppHandle, token: String, dir: String) -> Result<String, String> {
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  let rows = applied_list_paths(&paths, user_id)?;
   let path = PathBuf::from(&dir);
   fs::create_dir_all(&path).map_err(|e| e.to_string())?;
   let file_path = path.join("job_applied.csv");
@@ -229,20 +347,28 @@ fn csv_reader_strip_bom(path: &Path) -> Result<csv::Reader<File>, String> {
 }
 
 #[tauri::command]
-pub fn applied_import_csv(app: AppHandle, file_path: String) -> Result<ImportResult, String> {
+pub fn applied_import_csv(
+  app: AppHandle,
+  token: String,
+  file_path: String,
+) -> Result<ImportResult, String> {
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
   let path = PathBuf::from(&file_path);
   let mut rdr = csv_reader_strip_bom(&path)?;
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
-  conn.execute("DELETE FROM applied", []).map_err(|e| e.to_string())?;
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
+  conn
+    .execute("DELETE FROM applied WHERE user_id = ?1", params![user_id])
+    .map_err(|e| e.to_string())?;
 
   let mut inserted = 0u32;
   for result in rdr.deserialize() {
     let record: CsvApplied = result.map_err(|e| e.to_string())?;
     conn
       .execute(
-        "INSERT INTO applied (company, role, via, date, status, comments) VALUES (?1,?2,?3,?4,?5,?6)",
+        "INSERT INTO applied (user_id, company, role, via, date, status, comments) VALUES (?1,?2,?3,?4,?5,?6,?7)",
         params![
+          user_id,
           record.company,
           record.role,
           record.via,
@@ -291,15 +417,22 @@ pub struct CodeRow {
 }
 
 #[tauri::command]
-pub fn code_list(app: AppHandle) -> Result<Vec<CodeRow>, String> {
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+pub fn code_list(app: AppHandle, token: String) -> Result<Vec<CodeRow>, String> {
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  code_list_paths(&paths, user_id)
+}
+
+pub fn code_list_paths(paths: &AppPaths, user_id: i64) -> Result<Vec<CodeRow>, String> {
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
 
   let mut stmt = conn
-    .prepare("SELECT id, account, username, password, tel, email, comments FROM code ORDER BY id")
+    .prepare(
+      "SELECT id, account, username, password, tel, email, comments FROM code WHERE user_id = ?1 ORDER BY id",
+    )
     .map_err(|e| e.to_string())?;
   let rows = stmt
-    .query_map([], |r| {
+    .query_map(params![user_id], |r| {
       Ok(CodeRow {
         id: r.get(0)?,
         account: r.get(1)?,
@@ -322,6 +455,7 @@ pub fn code_list(app: AppHandle) -> Result<Vec<CodeRow>, String> {
 #[tauri::command]
 pub fn code_create(
   app: AppHandle,
+  token: String,
   account: String,
   username: String,
   password: String,
@@ -329,12 +463,35 @@ pub fn code_create(
   email: String,
   comments: String,
 ) -> Result<i64, String> {
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  code_create_paths(
+    &paths,
+    user_id,
+    account,
+    username,
+    password,
+    tel,
+    email,
+    comments,
+  )
+}
+
+pub fn code_create_paths(
+  paths: &AppPaths,
+  user_id: i64,
+  account: String,
+  username: String,
+  password: String,
+  tel: String,
+  email: String,
+  comments: String,
+) -> Result<i64, String> {
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
   conn
     .execute(
-      "INSERT INTO code (account, username, password, tel, email, comments) VALUES (?1,?2,?3,?4,?5,?6)",
-      params![account, username, password, tel, email, comments],
+      "INSERT INTO code (user_id, account, username, password, tel, email, comments) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+      params![user_id, account, username, password, tel, email, comments],
     )
     .map_err(|e| e.to_string())?;
   Ok(conn.last_insert_rowid())
@@ -343,6 +500,7 @@ pub fn code_create(
 #[tauri::command]
 pub fn code_update(
   app: AppHandle,
+  token: String,
   id: i64,
   account: String,
   username: String,
@@ -351,30 +509,62 @@ pub fn code_update(
   email: String,
   comments: String,
 ) -> Result<(), String> {
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
-  conn
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  code_update_paths(
+    &paths,
+    user_id,
+    id,
+    account,
+    username,
+    password,
+    tel,
+    email,
+    comments,
+  )
+}
+
+pub fn code_update_paths(
+  paths: &AppPaths,
+  user_id: i64,
+  id: i64,
+  account: String,
+  username: String,
+  password: String,
+  tel: String,
+  email: String,
+  comments: String,
+) -> Result<(), String> {
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
+  let n = conn
     .execute(
-      "UPDATE code SET account=?1, username=?2, password=?3, tel=?4, email=?5, comments=?6 WHERE id=?7",
-      params![account, username, password, tel, email, comments, id],
+      "UPDATE code SET account=?1, username=?2, password=?3, tel=?4, email=?5, comments=?6 WHERE id=?7 AND user_id=?8",
+      params![account, username, password, tel, email, comments, id, user_id],
     )
     .map_err(|e| e.to_string())?;
-  Ok(())
+  guard_row_changed(n)
 }
 
 #[tauri::command]
-pub fn code_delete(app: AppHandle, id: i64) -> Result<(), String> {
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
-  conn
-    .execute("DELETE FROM code WHERE id=?1", params![id])
+pub fn code_delete(app: AppHandle, token: String, id: i64) -> Result<(), String> {
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  code_delete_paths(&paths, user_id, id)
+}
+
+pub fn code_delete_paths(paths: &AppPaths, user_id: i64, id: i64) -> Result<(), String> {
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
+  let n = conn
+    .execute("DELETE FROM code WHERE id=?1 AND user_id=?2", params![id, user_id])
     .map_err(|e| e.to_string())?;
-  Ok(())
+  guard_row_changed(n)
 }
 
 #[tauri::command]
-pub fn code_export_csv(app: AppHandle, dir: String) -> Result<String, String> {
-  let rows = code_list(app.clone())?;
+pub fn code_export_csv(app: AppHandle, token: String, dir: String) -> Result<String, String> {
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
+  let rows = code_list_paths(&paths, user_id)?;
   let path = PathBuf::from(&dir);
   fs::create_dir_all(&path).map_err(|e| e.to_string())?;
   let file_path = path.join("code_management.csv");
@@ -400,20 +590,28 @@ pub fn code_export_csv(app: AppHandle, dir: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn code_import_csv(app: AppHandle, file_path: String) -> Result<ImportResult, String> {
+pub fn code_import_csv(
+  app: AppHandle,
+  token: String,
+  file_path: String,
+) -> Result<ImportResult, String> {
+  let paths = AppPaths::from_tauri(&app)?;
+  let user_id = user_id_from_token(&paths, &token)?;
   let path = PathBuf::from(&file_path);
   let mut rdr = csv_reader_strip_bom(&path)?;
-  let db_path = easyapply_db_path(&app)?;
-  let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
-  conn.execute("DELETE FROM code", []).map_err(|e| e.to_string())?;
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
+  conn
+    .execute("DELETE FROM code WHERE user_id = ?1", params![user_id])
+    .map_err(|e| e.to_string())?;
 
   let mut inserted = 0u32;
   for result in rdr.deserialize() {
     let record: CsvCode = result.map_err(|e| e.to_string())?;
     conn
       .execute(
-        "INSERT INTO code (account, username, password, tel, email, comments) VALUES (?1,?2,?3,?4,?5,?6)",
+        "INSERT INTO code (user_id, account, username, password, tel, email, comments) VALUES (?1,?2,?3,?4,?5,?6,?7)",
         params![
+          user_id,
           record.account,
           record.username,
           record.password,
@@ -524,4 +722,111 @@ pub fn app_material_open_folder(app: AppHandle, kind: String) -> Result<(), Stri
   };
   let path = dir.ok_or("Folder not set. Create or select folder first.")?;
   open_in_explorer(Path::new(&path))
+}
+
+// ---- Cloud / server helpers (AppPaths, no native dialogs) ----
+
+pub fn applied_export_csv_bytes(paths: &AppPaths, user_id: i64) -> Result<Vec<u8>, String> {
+  let rows = applied_list_paths(paths, user_id)?;
+  let mut buf = Vec::new();
+  buf.extend_from_slice(UTF8_BOM);
+  {
+    let mut w = csv::Writer::from_writer(&mut buf);
+    w.write_record(["Company", "Role", "Via", "Date", "Status", "Comments"])
+      .map_err(|e| e.to_string())?;
+    for r in &rows {
+      w.write_record([&r.company, &r.role, &r.via, &r.date, &r.status, &r.comments])
+        .map_err(|e| e.to_string())?;
+    }
+    w.flush().map_err(|e| e.to_string())?;
+  }
+  Ok(buf)
+}
+
+pub fn code_export_csv_bytes(paths: &AppPaths, user_id: i64) -> Result<Vec<u8>, String> {
+  let rows = code_list_paths(paths, user_id)?;
+  let mut buf = Vec::new();
+  buf.extend_from_slice(UTF8_BOM);
+  {
+    let mut w = csv::Writer::from_writer(&mut buf);
+    w.write_record(["Account", "Username", "Password", "Tel", "Email", "Comments"])
+      .map_err(|e| e.to_string())?;
+    for r in &rows {
+      w.write_record([
+        &r.account,
+        &r.username,
+        &r.password,
+        &r.tel,
+        &r.email,
+        &r.comments,
+      ])
+      .map_err(|e| e.to_string())?;
+    }
+    w.flush().map_err(|e| e.to_string())?;
+  }
+  Ok(buf)
+}
+
+pub fn applied_import_csv_bytes(
+  paths: &AppPaths,
+  user_id: i64,
+  data: &[u8],
+) -> Result<ImportResult, String> {
+  let mut rdr = csv::Reader::from_reader(data);
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
+  conn
+    .execute("DELETE FROM applied WHERE user_id = ?1", params![user_id])
+    .map_err(|e| e.to_string())?;
+  let mut inserted = 0u32;
+  for result in rdr.deserialize() {
+    let record: CsvApplied = result.map_err(|e| e.to_string())?;
+    conn
+      .execute(
+        "INSERT INTO applied (user_id, company, role, via, date, status, comments) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        params![
+          user_id,
+          record.company,
+          record.role,
+          record.via,
+          record.date,
+          record.status,
+          record.comments,
+        ],
+      )
+      .map_err(|e| e.to_string())?;
+    inserted += 1;
+  }
+  Ok(ImportResult { inserted })
+}
+
+pub fn code_import_csv_bytes(
+  paths: &AppPaths,
+  user_id: i64,
+  data: &[u8],
+) -> Result<ImportResult, String> {
+  let mut rdr = csv::Reader::from_reader(data);
+  let conn = rusqlite::Connection::open(paths.easyapply_db()).map_err(|e| e.to_string())?;
+  conn
+    .execute("DELETE FROM code WHERE user_id = ?1", params![user_id])
+    .map_err(|e| e.to_string())?;
+  let mut inserted = 0u32;
+  for result in rdr.deserialize() {
+    let record: CsvCode = result.map_err(|e| e.to_string())?;
+    conn
+      .execute(
+        "INSERT INTO code (user_id, account, username, password, tel, email, comments) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        params![
+          user_id,
+          record.account,
+          record.username,
+          record.password,
+          record.tel,
+          record.email,
+          record.comments,
+        ],
+      )
+      .map_err(|e| e.to_string())?;
+    inserted += 1;
+  }
+  Ok(ImportResult { inserted })
 }

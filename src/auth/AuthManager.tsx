@@ -1,7 +1,9 @@
 // src/auth/AuthManager.tsx
-import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
+import { appInvoke, isWebDataMode } from "../api/client";
+import "./auth.css";
 import en from "../i18n/en.json";
 import zh from "../i18n/zh.json";
 
@@ -78,8 +80,8 @@ type ConfirmState =
   | null
   | { kind: "export"; payload: { folderPath: string } }
   | { kind: "single"; payload: { username: string; role: string } }
-  | { kind: "bulk-validate"; payload: { absPath: string } }
-  | { kind: "bulk-apply"; payload: { absPath: string } };
+  | { kind: "bulk-validate"; payload: { csvText: string; label: string } }
+  | { kind: "bulk-apply"; payload: { csvText: string; label: string } };
 
 export default function AuthManager(props: { allowedRoles?: string[] }) {
   const [language, setLanguage] = useState<LanguageKey>(() => readSavedLanguage());
@@ -161,7 +163,9 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
   const [busySingle, setBusySingle] = useState(false);
 
   const [bulkCsvPath, setBulkCsvPath] = useState<string>("");
+  const [bulkCsvText, setBulkCsvText] = useState<string>("");
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
   const [busyBulk, setBusyBulk] = useState(false);
   const [bulkReport, setBulkReport] = useState<ValidationReport | null>(null);
   const [bulkApplyRes, setBulkApplyRes] = useState<ApplyResult | null>(null);
@@ -201,7 +205,7 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
   const requestExport = () => {
     setExportMsg(null);
     const folderPath = exportFolder.trim();
-    if (!folderPath) {
+    if (!isWebDataMode() && !folderPath) {
       setExportMsg(t("auth_manager.messages.please_select_folder_first"));
       return;
     }
@@ -225,10 +229,25 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
     setConfirm({ kind: "single", payload: { username: u, role: rolePick } });
   };
 
+  const setBulkCsvSelection = (fileName: string, csvText: string) => {
+    setBulkCsvPath(fileName);
+    setBulkCsvText(csvText);
+    setBulkMsg(
+      t("auth_manager.messages.csv_selected_validate_first", {
+        fileName,
+      })
+    );
+  };
+
   const pickCsvFile = async () => {
     setBulkMsg(null);
     setBulkReport(null);
     setBulkApplyRes(null);
+
+    if (isWebDataMode()) {
+      csvFileInputRef.current?.click();
+      return;
+    }
 
     const picked = await open({
       multiple: false,
@@ -244,12 +263,31 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
       return;
     }
 
-    setBulkCsvPath(absPath);
-    setBulkMsg(
-      t("auth_manager.messages.csv_selected_validate_first", {
-        fileName: basename(absPath),
-      })
-    );
+    const csvText = await appInvoke<string>("ai_read_text_file", { path: absPath }).catch(() => "");
+    if (!csvText.trim()) {
+      setBulkMsg(t("auth_manager.messages.invalid_csv_path"));
+      return;
+    }
+    setBulkCsvSelection(basename(absPath), csvText);
+  };
+
+  const onWebCsvFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBulkMsg(null);
+    setBulkReport(null);
+    setBulkApplyRes(null);
+    try {
+      const csvText = await file.text();
+      if (!csvText.trim()) {
+        setBulkMsg(t("auth_manager.messages.invalid_csv_path"));
+        return;
+      }
+      setBulkCsvSelection(file.name, csvText);
+    } catch (err) {
+      setBulkMsg(String(err));
+    }
   };
 
   const requestBulkValidate = () => {
@@ -257,20 +295,23 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
     setBulkReport(null);
     setBulkApplyRes(null);
 
-    const p = bulkCsvPath.trim();
-    if (!p) {
+    const csvText = bulkCsvText.trim();
+    if (!csvText) {
       setBulkMsg(t("auth_manager.messages.please_select_csv_first"));
       return;
     }
-    setConfirm({ kind: "bulk-validate", payload: { absPath: p } });
+    setConfirm({
+      kind: "bulk-validate",
+      payload: { csvText, label: bulkCsvPath.trim() || "users.csv" },
+    });
   };
 
   const requestBulkApply = () => {
     setBulkMsg(null);
     setBulkApplyRes(null);
 
-    const p = bulkCsvPath.trim();
-    if (!p) {
+    const csvText = bulkCsvText.trim();
+    if (!csvText) {
       setBulkMsg(t("auth_manager.messages.please_select_csv_first"));
       return;
     }
@@ -282,7 +323,10 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
       setBulkMsg(t("auth_manager.messages.validation_failed_fix_before_apply"));
       return;
     }
-    setConfirm({ kind: "bulk-apply", payload: { absPath: p } });
+    setConfirm({
+      kind: "bulk-apply",
+      payload: { csvText, label: bulkCsvPath.trim() || "users.csv" },
+    });
   };
 
   const doConfirm = async () => {
@@ -294,11 +338,13 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
       setBusyExport(true);
       setExportMsg(null);
       try {
-        const savedPath = await invoke<string>(CMD_EXPORT, {
+        const savedPath = await appInvoke<string>(CMD_EXPORT, {
           folderPath: c.payload.folderPath,
         });
         setExportMsg(
-          t("auth_manager.messages.exported", { path: savedPath })
+          isWebDataMode()
+            ? t("auth_manager.messages.exported", { path: "download" })
+            : t("auth_manager.messages.exported", { path: savedPath })
         );
       } catch (e) {
         setExportMsg(
@@ -314,7 +360,7 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
       setBusySingle(true);
       setSingleMsg(null);
       try {
-        await invoke(CMD_UPSERT, {
+        await appInvoke(CMD_UPSERT, {
           username: c.payload.username,
           role: c.payload.role,
         });
@@ -336,8 +382,8 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
       setBulkApplyRes(null);
 
       try {
-        const res = await invoke<BulkResponse>(CMD_BULK, {
-          absPath: c.payload.absPath,
+        const res = await appInvoke<BulkResponse>(CMD_BULK, {
+          csvText: c.payload.csvText,
           dryRun: true,
         });
 
@@ -381,8 +427,8 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
       setBulkApplyRes(null);
 
       try {
-        const res = await invoke<BulkResponse>(CMD_BULK, {
-          absPath: c.payload.absPath,
+        const res = await appInvoke<BulkResponse>(CMD_BULK, {
+          csvText: c.payload.csvText,
           dryRun: false,
         });
 
@@ -474,7 +520,7 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
             {t("auth_manager.confirm.body.bulk_validate_intro")}
           </div>
           <div className="settings__hint">
-            <code>{confirm.payload.absPath}</code>
+            <code>{confirm.payload.label}</code>
           </div>
         </>
       );
@@ -486,7 +532,7 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
           {t("auth_manager.confirm.body.bulk_apply_intro")}
         </div>
         <div className="settings__hint">
-          <code>{confirm.payload.absPath}</code>
+          <code>{confirm.payload.label}</code>
         </div>
         <div className="settings__hint">
           {t("auth_manager.confirm.body.bulk_apply_block")}
@@ -519,7 +565,7 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
             className="btn btn--primary"
             type="button"
             onClick={requestExport}
-            disabled={busyExport || !exportFolder.trim()}
+            disabled={busyExport || (!isWebDataMode() && !exportFolder.trim())}
           >
             {t("auth_manager.actions.export_database")}
           </button>
@@ -597,6 +643,15 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
         </div>
 
         <div className="settings__actions authm__actions-tight">
+          <input
+            ref={csvFileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              onWebCsvFileChange(e).catch((err) => setBulkMsg(String(err)));
+            }}
+          />
           <button
             className="btn"
             type="button"
@@ -610,7 +665,7 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
             className="btn"
             type="button"
             onClick={requestBulkValidate}
-            disabled={busyBulk || !bulkCsvPath.trim()}
+            disabled={busyBulk || !bulkCsvText.trim()}
           >
             {t("auth_manager.actions.validate")}
           </button>
@@ -619,7 +674,7 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
             className="btn btn--primary"
             type="button"
             onClick={requestBulkApply}
-            disabled={busyBulk || !bulkCsvPath.trim() || !bulkReport?.ok}
+            disabled={busyBulk || !bulkCsvText.trim() || !bulkReport?.ok}
           >
             {t("auth_manager.actions.apply_csv")}
           </button>
@@ -693,9 +748,10 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
         )}
       </div>
 
-      {confirm && (
-        <div
-          className="calc__modal-backdrop"
+      {confirm
+        ? createPortal(
+            <div
+              className="calc__modal-backdrop"
           role="dialog"
           aria-modal="true"
           aria-label={confirmTitle}
@@ -731,8 +787,10 @@ export default function AuthManager(props: { allowedRoles?: string[] }) {
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

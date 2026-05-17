@@ -1,5 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appInvoke, downloadCsv, isWebDataMode, uploadCsv } from "../api/client";
+import PanelRecordSearch from "../components/PanelRecordSearch";
+import { usePanelRecordSearch } from "../hooks/usePanelRecordSearch";
+import { useSessionToken } from "../hooks/useSessionToken";
 import { confirmAction } from "../utils/confirm";
 
 const LOG = (msg: string, ...args: unknown[]) => console.log("[easyapply]", msg, ...args);
@@ -31,6 +34,7 @@ const MIN_COL_WIDTH = 40;
 
 export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: boolean }) {
   const { t, disabled } = props;
+  const token = useSessionToken();
   const [rows, setRows] = useState<AppliedRow[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState<AppliedRow>(emptyRow());
@@ -40,10 +44,12 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
   const [resizingCol, setResizingCol] = useState<number | null>(null);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(0);
+  const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
 
   const load = useCallback(async () => {
+    if (!token) return;
     try {
-      const list = await invoke<AppliedRow[]>("applied_list");
+      const list = await appInvoke<AppliedRow[]>("applied_list", { token });
       setRows(list);
       if (selectedId !== null && !list.some((r) => r.id === selectedId)) {
         setSelectedId(null);
@@ -55,7 +61,7 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
     } catch (e) {
       setMessage(t("app.alerts.load_failed", { error: String(e) }));
     }
-  }, [selectedId, t]);
+  }, [selectedId, t, token]);
 
   useEffect(() => {
     load();
@@ -93,6 +99,13 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
     setForm({ ...r });
   };
 
+  const search = usePanelRecordSearch(
+    rows,
+    ["company", "role", "via", "date", "status", "comments"],
+    select,
+    (id) => rowRefs.current.get(id) ?? null,
+  );
+
   const clear = () => {
     setForm(emptyRow());
     setSelectedId(null);
@@ -111,7 +124,8 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
     try {
       LOG("save: invoking backend", isUpdate ? "update" : "create");
       if (form.id) {
-        await invoke("applied_update", {
+        await appInvoke("applied_update", {
+          token,
           id: form.id,
           company: form.company,
           role: form.role,
@@ -121,7 +135,8 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
           comments: form.comments,
         });
       } else {
-        await invoke("applied_create", {
+        await appInvoke("applied_create", {
+          token,
           company: form.company,
           role: form.role,
           via: form.via,
@@ -152,7 +167,7 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
     setMessage(null);
     try {
       LOG("remove: invoking applied_delete");
-      await invoke("applied_delete", { id: form.id });
+      await appInvoke("applied_delete", { token, id: form.id });
       await load();
       setForm(emptyRow());
       setSelectedId(null);
@@ -169,9 +184,15 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
     if (disabled || busy) return;
     setMessage(null);
     try {
+      if (isWebDataMode()) {
+        await downloadCsv("/api/applied/export.csv", "job_applied.csv");
+        setMessage(t("auth_manager.messages.exported", { path: "job_applied.csv" }));
+        return;
+      }
+      const { invoke } = await import("@tauri-apps/api/core");
       const dir = await invoke<string | null>("pick_export_folder");
       if (!dir) return;
-      const path = await invoke<string>("applied_export_csv", { dir });
+      const path = await invoke<string>("applied_export_csv", { token, dir });
       setMessage(t("auth_manager.messages.exported", { path }));
     } catch (e) {
       setMessage(t("app.alerts.export_failed", { error: String(e) }));
@@ -186,11 +207,26 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
     if (!ok) return;
     setMessage(null);
     try {
+      if (isWebDataMode()) {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".csv,text/csv";
+        const file = await new Promise<File | null>((resolve) => {
+          input.onchange = () => resolve(input.files?.[0] ?? null);
+          input.click();
+        });
+        if (!file) return;
+        const res = await uploadCsv("/api/applied/import", file);
+        setMessage(t("auth_manager.report.inserted", { count: res.inserted }));
+        await load();
+        return;
+      }
       LOG("importCsv: opening file picker");
+      const { invoke } = await import("@tauri-apps/api/core");
       const filePath = await invoke<string | null>("pick_file_csv");
       if (!filePath) return;
       LOG("importCsv: invoking applied_import_csv");
-      const res = await invoke<{ inserted: number }>("applied_import_csv", { filePath });
+      const res = await appInvoke<{ inserted: number }>("applied_import_csv", { token, filePath });
       setMessage(t("auth_manager.report.inserted", { count: res.inserted }) + `: ${res.inserted}`);
       await load();
       LOG("importCsv: done");
@@ -201,8 +237,9 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
   };
 
   const openFolder = async () => {
-    if (disabled) return;
+    if (disabled || isWebDataMode()) return;
     try {
+      const { invoke } = await import("@tauri-apps/api/core");
       await invoke("open_last_export_dir", { kind: "job" });
     } catch (e) {
       setMessage(t("app.alerts.open_folder_failed", { error: String(e) }));
@@ -214,6 +251,21 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
       <div className="settings__section">
         <div className="settings__section-title">{t("job_applied.actions.export_database")} / {t("job_applied.actions.import_csv")}</div>
         <div className="settings__hint">{t("job_applied.hints.export_database_hint")}</div>
+        <PanelRecordSearch
+          query={search.query}
+          onQueryChange={search.setQuery}
+          matchCount={search.matchIds.length}
+          matchIndex={search.matchIndex}
+          onPrev={search.goPrev}
+          onNext={search.goNext}
+          onClear={search.clear}
+          disabled={disabled || busy}
+          placeholder={t("job_applied.search.placeholder")}
+          prevLabel={t("job_applied.search.prev")}
+          nextLabel={t("job_applied.search.next")}
+          countLabel={t("job_applied.search.count")}
+          noResultsLabel={t("job_applied.search.no_results")}
+        />
         <div className="panel-actions-stack">
           <button type="button" className="btn" onClick={exportCsv} disabled={disabled || busy}>
             {t("job_applied.actions.export_database")}
@@ -221,9 +273,11 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
           <button type="button" className="btn" onClick={importCsv} disabled={disabled || busy}>
             {t("job_applied.actions.import_csv")}
           </button>
-          <button type="button" className="btn btn--primary" onClick={openFolder} disabled={disabled}>
-            {t("job_applied.actions.open_folder")}
-          </button>
+          {!isWebDataMode() ? (
+            <button type="button" className="btn btn--primary" onClick={openFolder} disabled={disabled}>
+              {t("job_applied.actions.open_folder")}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -268,7 +322,16 @@ export default function JobAppliedPanel(props: { t: TranslateFn; disabled?: bool
               {rows.map((r) => (
                 <tr
                   key={r.id}
-                  className={selectedId === r.id ? "is-selected" : ""}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(r.id, el);
+                    else rowRefs.current.delete(r.id);
+                  }}
+                  className={[
+                    selectedId === r.id ? "is-selected" : "",
+                    search.activeMatchId === r.id ? "is-search-match" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   onClick={() => select(r)}
                 >
                   <td title={r.company}>{r.company}</td>

@@ -1,5 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appInvoke, downloadCsv, isWebDataMode, uploadCsv } from "../api/client";
+import PanelRecordSearch from "../components/PanelRecordSearch";
+import { usePanelRecordSearch } from "../hooks/usePanelRecordSearch";
+import { useSessionToken } from "../hooks/useSessionToken";
 import { confirmAction } from "../utils/confirm";
 
 const LOG = (msg: string, ...args: unknown[]) => console.log("[easyapply]", msg, ...args);
@@ -31,6 +34,7 @@ const MIN_COL_WIDTH = 40;
 
 export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: boolean }) {
   const { t, disabled } = props;
+  const token = useSessionToken();
   const [rows, setRows] = useState<CodeRow[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState<CodeRow>(emptyRow());
@@ -41,10 +45,12 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
   const [resizingCol, setResizingCol] = useState<number | null>(null);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(0);
+  const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
 
   const load = useCallback(async () => {
+    if (!token) return;
     try {
-      const list = await invoke<CodeRow[]>("code_list");
+      const list = await appInvoke<CodeRow[]>("code_list", { token });
       setRows(list);
       if (selectedId !== null && !list.some((r) => r.id === selectedId)) {
         setSelectedId(null);
@@ -56,7 +62,7 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
     } catch (e) {
       setMessage(t("app.alerts.load_failed", { error: String(e) }));
     }
-  }, [selectedId, t]);
+  }, [selectedId, t, token]);
 
   useEffect(() => {
     load();
@@ -94,6 +100,13 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
     setForm({ ...r });
   };
 
+  const search = usePanelRecordSearch(
+    rows,
+    ["account", "username", "password", "tel", "email", "comments"],
+    select,
+    (id) => rowRefs.current.get(id) ?? null,
+  );
+
   const clear = () => {
     setForm(emptyRow());
     setSelectedId(null);
@@ -112,7 +125,8 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
     try {
       LOG("save: invoking backend", isUpdate ? "update" : "create");
       if (form.id) {
-        await invoke("code_update", {
+        await appInvoke("code_update", {
+          token,
           id: form.id,
           account: form.account,
           username: form.username,
@@ -122,7 +136,8 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
           comments: form.comments,
         });
       } else {
-        await invoke("code_create", {
+        await appInvoke("code_create", {
+          token,
           account: form.account,
           username: form.username,
           password: form.password,
@@ -153,7 +168,7 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
     setMessage(null);
     try {
       LOG("remove: invoking code_delete");
-      await invoke("code_delete", { id: form.id });
+      await appInvoke("code_delete", { token, id: form.id });
       await load();
       setForm(emptyRow());
       setSelectedId(null);
@@ -170,9 +185,15 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
     if (disabled || busy) return;
     setMessage(null);
     try {
+      if (isWebDataMode()) {
+        await downloadCsv("/api/code/export.csv", "code_management.csv");
+        setMessage(t("auth_manager.messages.exported", { path: "code_management.csv" }));
+        return;
+      }
+      const { invoke } = await import("@tauri-apps/api/core");
       const dir = await invoke<string | null>("pick_export_folder");
       if (!dir) return;
-      const path = await invoke<string>("code_export_csv", { dir });
+      const path = await invoke<string>("code_export_csv", { token, dir });
       setMessage(t("auth_manager.messages.exported", { path }));
     } catch (e) {
       setMessage(t("app.alerts.export_failed", { error: String(e) }));
@@ -187,11 +208,26 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
     if (!ok) return;
     setMessage(null);
     try {
+      if (isWebDataMode()) {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".csv,text/csv";
+        const file = await new Promise<File | null>((resolve) => {
+          input.onchange = () => resolve(input.files?.[0] ?? null);
+          input.click();
+        });
+        if (!file) return;
+        const res = await uploadCsv("/api/code/import", file);
+        setMessage(`${t("auth_manager.report.inserted")}: ${res.inserted}`);
+        await load();
+        return;
+      }
       LOG("importCsv: opening file picker");
+      const { invoke } = await import("@tauri-apps/api/core");
       const filePath = await invoke<string | null>("pick_file_csv");
       if (!filePath) return;
       LOG("importCsv: invoking code_import_csv");
-      const res = await invoke<{ inserted: number }>("code_import_csv", { filePath });
+      const res = await appInvoke<{ inserted: number }>("code_import_csv", { token, filePath });
       setMessage(`${t("auth_manager.report.inserted")}: ${res.inserted}`);
       await load();
       LOG("importCsv: done");
@@ -202,8 +238,9 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
   };
 
   const openFolder = async () => {
-    if (disabled) return;
+    if (disabled || isWebDataMode()) return;
     try {
+      const { invoke } = await import("@tauri-apps/api/core");
       await invoke("open_last_export_dir", { kind: "code" });
     } catch (e) {
       setMessage(t("app.alerts.open_folder_failed", { error: String(e) }));
@@ -215,6 +252,21 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
       <div className="settings__section">
         <div className="settings__section-title">{t("code_management.actions.export_database")} / {t("code_management.actions.import_csv")}</div>
         <div className="settings__hint">{t("code_management.hints.export_database_hint")}</div>
+        <PanelRecordSearch
+          query={search.query}
+          onQueryChange={search.setQuery}
+          matchCount={search.matchIds.length}
+          matchIndex={search.matchIndex}
+          onPrev={search.goPrev}
+          onNext={search.goNext}
+          onClear={search.clear}
+          disabled={disabled || busy}
+          placeholder={t("code_management.search.placeholder")}
+          prevLabel={t("code_management.search.prev")}
+          nextLabel={t("code_management.search.next")}
+          countLabel={t("code_management.search.count")}
+          noResultsLabel={t("code_management.search.no_results")}
+        />
         <div className="panel-actions-stack">
           <button type="button" className="btn" onClick={exportCsv} disabled={disabled || busy}>
             {t("code_management.actions.export_database")}
@@ -222,9 +274,11 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
           <button type="button" className="btn" onClick={importCsv} disabled={disabled || busy}>
             {t("code_management.actions.import_csv")}
           </button>
-          <button type="button" className="btn btn--primary" onClick={openFolder} disabled={disabled}>
-            {t("code_management.actions.open_folder")}
-          </button>
+          {!isWebDataMode() ? (
+            <button type="button" className="btn btn--primary" onClick={openFolder} disabled={disabled}>
+              {t("code_management.actions.open_folder")}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -269,7 +323,16 @@ export default function CodeManagementPanel(props: { t: TranslateFn; disabled?: 
               {rows.map((r) => (
                 <tr
                   key={r.id}
-                  className={selectedId === r.id ? "is-selected" : ""}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(r.id, el);
+                    else rowRefs.current.delete(r.id);
+                  }}
+                  className={[
+                    selectedId === r.id ? "is-selected" : "",
+                    search.activeMatchId === r.id ? "is-search-match" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   onClick={() => select(r)}
                 >
                   <td title={r.account}>{r.account}</td>

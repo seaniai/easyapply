@@ -1,6 +1,7 @@
 // src/auth/AuthProvider.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appInvoke } from "../api/client";
+import { isTauri, setAuthToken } from "../api/runtime";
 
 export type AuthUserInfo = {
   user_id: number;
@@ -23,37 +24,39 @@ type AuthCtx = {
 
 const Ctx = createContext<AuthCtx | null>(null);
 
-const LS_TOKEN = "easyapply.auth.token";
-
 export function AuthProvider(props: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
 
   useEffect(() => {
-    const token = localStorage.getItem(LS_TOKEN);
+    const token = localStorage.getItem("easyapply.auth.token");
     if (!token) {
       setState({ status: "unauth" });
       return;
     }
-    invoke<any>("auth_resume", { token })
+    appInvoke<{ token: string; user: AuthUserInfo }>("auth_resume", { token })
       .then((res) => setState({ status: "authed", token: res.token, user: res.user }))
       .catch(() => {
-        localStorage.removeItem(LS_TOKEN);
+        setAuthToken(null);
         setState({ status: "unauth" });
       });
   }, []);
 
   const login = async (username: string, password: string, rememberMe: boolean) => {
-    const res = await invoke<any>("auth_login", { username, password, rememberMe });
+    const res = await appInvoke<{ token: string; user: AuthUserInfo }>("auth_login", {
+      username,
+      password,
+      rememberMe,
+    });
     setState({ status: "authed", token: res.token, user: res.user });
-    if (rememberMe) localStorage.setItem(LS_TOKEN, res.token);
-    else localStorage.removeItem(LS_TOKEN);
+    if (rememberMe || !isTauri()) setAuthToken(res.token);
+    else setAuthToken(null);
   };
 
   const logout = async () => {
     if (state.status === "authed") {
-      await invoke("auth_logout", { token: state.token }).catch(() => { });
+      await appInvoke("auth_logout", { token: state.token }).catch(() => { });
     }
-    localStorage.removeItem(LS_TOKEN);
+    setAuthToken(null);
     setState({ status: "unauth" });
   };
 

@@ -1,0 +1,163 @@
+# Azure Container Registry (ACR) — EasyApply
+
+Reference for the **EasyApply** registry in resource group **Test1**, created for web deployment (`feat/azure-cicd`).
+
+## Summary
+
+| Field | Value |
+|--------|--------|
+| **Resource name** | `EasyApply` |
+| **Login server** | `easyapply.azurecr.io` |
+| **CLI / GitHub `ACR_NAME`** | `easyapply` (lowercase; use this in `az acr login` and workflows) |
+| **Resource group** | `Test1` |
+| **Subscription ID** | `e3f39a42-c191-4356-a034-9062fecebc4d` |
+| **Location** | New Zealand North (`newzealandnorth`) |
+| **SKU** | Basic |
+| **Provisioning state** | Succeeded |
+| **Created** | 2026-05-17T07:38:15.692Z |
+| **Domain name label scope** | Unsecure |
+| **Public network access** | Enabled |
+| **Admin user** | Disabled (`adminUserEnabled: false`) |
+| **Tags** | `project=easyapply`, `owner=Sean` |
+
+## Image naming (CI/CD)
+
+Workflow [`.github/workflows/azure-deploy.yml`](../.github/workflows/azure-deploy.yml) builds and pushes:
+
+```text
+easyapply.azurecr.io/easyapply-api:<git-sha>
+```
+
+## GitHub Actions variables
+
+Set in **Settings → Secrets and variables → Actions → Variables**:
+
+| Variable | Value |
+|----------|--------|
+| `ACR_NAME` | `easyapply` |
+| `AZURE_WEBAPP_NAME` | `EasyApply` |
+| `AZURE_RESOURCE_GROUP` | `Test1` |
+
+## Related App Service
+
+Full Web App reference: [azure-app-service.md](./azure-app-service.md).
+
+| Field | Value |
+|--------|--------|
+| **Web App name** | `EasyApply` |
+| **Default hostname** | `easyapply-g2epd3dgf0erd3fb.newzealandnorth-01.azurewebsites.net` |
+| **Placeholder image (before deploy)** | `mcr.microsoft.com/appsvc/staticsite:latest` |
+
+## Pull access options
+
+`adminUserEnabled` is **false**. Use one of:
+
+1. **Managed identity (recommended):** **EasyApply** → **Settings** → **Identity** → **System assigned** → **On**; then ACR → **Access control (IAM)** → role **AcrPull** for the Web App identity.
+2. **Admin user (first deploy only):** ACR → **Settings** → **Access keys** → **Admin user** → **Enabled**.
+
+GitHub Actions OIDC identity needs **AcrPush** on this registry.
+
+## App Service application settings (reminder)
+
+Configure on **EasyApply** → **Settings** → **Environment variables**:
+
+| Name | Example / note |
+|------|----------------|
+| `EASYAPPLY_SECRET_ENCRYPTION_KEY` | 32-byte secret (production: random) |
+| `EASYAPPLY_DATA_DIR` | `/home/site/wwwroot/data` |
+| `WEBSITES_PORT` | `8787` |
+| `PORT` | `8787` (optional; server reads `PORT` or `WEBSITES_PORT`) |
+
+**Health check path:** `/health`
+
+## Portal resource ID
+
+```text
+/subscriptions/e3f39a42-c191-4356-a034-9062fecebc4d/resourceGroups/Test1/providers/Microsoft.ContainerRegistry/registries/EasyApply
+```
+
+## Raw ARM / API snapshot (2026-05-17)
+
+<details>
+<summary>Full JSON from Azure (apiVersion 2026-01-01-preview)</summary>
+
+```json
+{
+    "apiVersion": "2026-01-01-preview",
+    "id": "/subscriptions/e3f39a42-c191-4356-a034-9062fecebc4d/resourceGroups/Test1/providers/Microsoft.ContainerRegistry/registries/EasyApply",
+    "name": "EasyApply",
+    "type": "microsoft.containerregistry/registries",
+    "sku": {
+        "name": "Basic",
+        "tier": "Basic"
+    },
+    "location": "newzealandnorth",
+    "tags": {
+        "project": "easyapply",
+        "owner": "Sean"
+    },
+    "properties": {
+        "loginServer": "easyapply.azurecr.io",
+        "creationDate": "2026-05-17T07:38:15.692Z",
+        "provisioningState": "Succeeded",
+        "adminUserEnabled": false,
+        "policies": {
+            "quarantinePolicy": {
+                "status": "disabled"
+            },
+            "trustPolicy": {
+                "type": "Notary",
+                "status": "disabled"
+            },
+            "retentionPolicy": {
+                "days": 7,
+                "lastUpdatedTime": "2026-05-17T07:38:30.326Z",
+                "status": "disabled"
+            },
+            "exportPolicy": {
+                "status": "enabled"
+            },
+            "azureADAuthenticationAsArmPolicy": {
+                "status": "enabled"
+            },
+            "softDeletePolicy": {
+                "retentionDays": 7,
+                "lastUpdatedTime": "2026-05-17T07:38:30.326Z",
+                "status": "disabled"
+            }
+        },
+        "encryption": {
+            "status": "disabled"
+        },
+        "dataEndpointEnabled": false,
+        "regionalEndpoints": "Disabled",
+        "dataEndpointHostNames": [],
+        "regionalEndpointHostNames": [],
+        "endpointProtocol": "IPv4",
+        "privateEndpointConnections": [],
+        "publicNetworkAccess": "Enabled",
+        "networkRuleBypassOptions": "AzureServices",
+        "networkRuleBypassAllowedForTasks": false,
+        "zoneRedundancy": "Disabled",
+        "anonymousPullEnabled": false,
+        "metadataSearch": "Disabled",
+        "roleAssignmentMode": "LegacyRegistryPermissions",
+        "autoGeneratedDomainNameLabelScope": "Unsecure"
+    },
+    "systemData": {
+        "createdBy": "axnw993@UoA.auckland.ac.nz",
+        "createdByType": "User",
+        "createdAt": "2026-05-17T07:38:15.692Z",
+        "lastModifiedBy": "axnw993@UoA.auckland.ac.nz",
+        "lastModifiedByType": "User",
+        "lastModifiedAt": "2026-05-17T07:38:15.692Z"
+    }
+}
+```
+
+</details>
+
+## See also
+
+- [plan.md](./plan.md) — §10 Azure hosting & CI/CD
+- [local-web-test.md](./local-web-test.md) — local Docker / `easyapply-server` smoke test

@@ -3,11 +3,13 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { appInvoke, isWebDataMode } from "./api/client";
+import { useSessionToken } from "./hooks/useSessionToken";
+import { useAuth } from "./auth/AuthProvider";
 import { APP_VERSION } from "./version";
 import settingIcon from "./assets/icon/setting.png";
 import accountIcon from "./assets/icon/account.png";
 import documentIcon from "./assets/icon/document.png";
-import { useAuth } from "./auth/AuthProvider";
 import AuthManager from "./auth/AuthManager";
 import ServerPlugin from "./server/server";
 import en from "./i18n/en.json";
@@ -126,10 +128,17 @@ function applyBodyTheme(tk: ThemeKey) {
   if (tk === "Black") document.body.classList.add("theme-black");
 }
 
+function apiKeyInputStorageKey(userId: number | null): string {
+  return userId == null ? API_KEY_INPUT_STORAGE_KEY : `${API_KEY_INPUT_STORAGE_KEY}.${userId}`;
+}
+
 function SettingsView(props: { disabled?: boolean }) {
   const { language, setLanguage, t } = useI18n();
+  const { state: authState } = useAuth();
+  const token = useSessionToken();
+  const userId = authState.status === "authed" ? authState.user.user_id : null;
   const [theme, setTheme] = useState<ThemeKey>("Default");
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(API_KEY_INPUT_STORAGE_KEY) ?? "");
+  const [apiKey, setApiKey] = useState("");
   const [apiBusy, setApiBusy] = useState(false);
   const [apiMessage, setApiMessage] = useState<string | null>(null);
   const [apiProfile, setApiProfile] = useState<{
@@ -153,38 +162,51 @@ function SettingsView(props: { disabled?: boolean }) {
   }, []);
 
   useEffect(() => {
-    invoke<{
+    if (!token) {
+      setApiProfile(null);
+      setApiKey("");
+      setApiMessage(null);
+      return;
+    }
+    setApiKey(localStorage.getItem(apiKeyInputStorageKey(userId)) ?? "");
+    appInvoke<{
       model: string;
       reasoningEffort: string;
       textVerbosity: string;
       timeoutSeconds: number;
       hasApiKey: boolean;
-    }>("ai_get_openai_profile")
-      .then((p) => setApiProfile(p))
+    }>("ai_get_openai_profile", { token })
+      .then((p) => {
+        setApiProfile(p);
+        setApiMessage(null);
+      })
       .catch((e) => setApiMessage(String(e)));
-  }, []);
+  }, [token, userId]);
 
   const onSaveAndTestApiKey = async () => {
     if (props.disabled || apiBusy) return;
     setApiBusy(true);
     setApiMessage(null);
     try {
-      const profile = await invoke<{
+      const profile = await appInvoke<{
         model: string;
         reasoningEffort: string;
         textVerbosity: string;
         timeoutSeconds: number;
         hasApiKey: boolean;
-      }>("ai_save_openai_api_key", { apiKey });
+      }>("ai_save_openai_api_key", { token, apiKey });
       setApiProfile(profile);
-      const test = await invoke<{
+      if (userId != null) {
+        localStorage.setItem(apiKeyInputStorageKey(userId), apiKey);
+      }
+      const test = await appInvoke<{
         ok: boolean;
         intro: string;
         model: string;
         reasoningEffort: string;
         textVerbosity: string;
         timeoutSeconds: number;
-      }>("ai_test_openai_api_key");
+      }>("ai_test_openai_api_key", { token });
       setApiMessage(test.intro);
     } catch (e) {
       setApiMessage(String(e));
@@ -244,7 +266,9 @@ function SettingsView(props: { disabled?: boolean }) {
             onChange={(e) => {
               const v = e.target.value;
               setApiKey(v);
-              localStorage.setItem(API_KEY_INPUT_STORAGE_KEY, v);
+              if (userId != null) {
+                localStorage.setItem(apiKeyInputStorageKey(userId), v);
+              }
             }}
             disabled={props.disabled || apiBusy}
             placeholder="sk-..."
@@ -581,6 +605,12 @@ export default function App() {
     if (isLocked) setDrawer({ type: "account" });
   }, [isLocked]);
 
+  useEffect(() => {
+    if (isWebDataMode() && drawer?.type === "application_material") {
+      setDrawer(null);
+    }
+  }, [drawer]);
+
   latestPanelWidth.current = panelWidth;
 
   useEffect(() => {
@@ -637,7 +667,7 @@ export default function App() {
     setDrawer({ type: "code_management" });
   };
   const openApplicationMaterial = () => {
-    if (isLocked) return;
+    if (isLocked || isWebDataMode()) return;
     setDrawer({ type: "application_material" });
   };
   const openCoverLetterGenerate = () => {
@@ -710,7 +740,9 @@ export default function App() {
         <header className="app__header">
           <div className="app__header-main">
             <h1 className="app__title">{t("app.title")}</h1>
-            <p className="app__subtitle">{t("app.subtitle")}</p>
+            <p className="app__subtitle">
+              {isWebDataMode() ? t("app.subtitle_web") : t("app.subtitle")}
+            </p>
           </div>
           <div className="app__utilities">
             <button className="util-btn" type="button" onClick={openSettings} disabled={isLocked} title={t("app.panel.title.settings")}>
@@ -747,14 +779,16 @@ export default function App() {
           >
             {t("app.main.code_management")}
           </button>
-          <button
-            type="button"
-            className="main-btn main-btn--primary"
-            onClick={openApplicationMaterial}
-            disabled={isLocked}
-          >
-            {t("app.main.application_material")}
-          </button>
+          {!isWebDataMode() ? (
+            <button
+              type="button"
+              className="main-btn main-btn--primary"
+              onClick={openApplicationMaterial}
+              disabled={isLocked}
+            >
+              {t("app.main.application_material")}
+            </button>
+          ) : null}
           <button
             type="button"
             className="main-btn main-btn--primary"
@@ -786,7 +820,9 @@ export default function App() {
               {drawer.type === "user_management" && <UserManagementView disabled={isLocked} />}
               {drawer.type === "job_applied" && <JobAppliedPanel t={t} disabled={isLocked} />}
               {drawer.type === "code_management" && <CodeManagementPanel t={t} disabled={isLocked} />}
-              {drawer.type === "application_material" && <ApplicationMaterialPanel t={t} disabled={isLocked} />}
+              {drawer.type === "application_material" && !isWebDataMode() && (
+                <ApplicationMaterialPanel t={t} disabled={isLocked} />
+              )}
             </div>
             <div className="panel__footer">
               <button className="btn" onClick={onClose} disabled={isLocked}>
